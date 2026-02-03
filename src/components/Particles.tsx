@@ -1,0 +1,99 @@
+import React, { useEffect, useRef } from 'react'
+
+type Particle = {
+  x: number
+  y: number
+  r: number
+  vx: number
+  vy: number
+  a: number
+}
+
+export function Particles() {
+  const ref = useRef<HTMLCanvasElement | null>(null)
+
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const dpr = Math.min(2, window.devicePixelRatio || 1)
+    let w = 0
+    let h = 0
+    const particles: Particle[] = []
+    const count = 70
+
+    const resize = () => {
+      w = canvas.clientWidth
+      h = canvas.clientHeight
+      canvas.width = Math.floor(w * dpr)
+      canvas.height = Math.floor(h * dpr)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
+
+    const reset = () => {
+      particles.length = 0
+      for (let i = 0; i < count; i++) {
+        particles.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          r: 0.6 + Math.random() * 2.2,
+          vx: (-0.2 + Math.random() * 0.4),
+          vy: (0.10 + Math.random() * 0.55),
+          a: 0.05 + Math.random() * 0.11
+        })
+      }
+    }
+
+    resize()
+    reset()
+    const ro = new ResizeObserver(() => { resize(); reset() })
+    ro.observe(canvas)
+
+    let raf = 0
+    const tick = () => {
+      ctx.clearRect(0, 0, w, h)
+
+      // soft vignettes (no explicit colors, uses current fill style)
+      ctx.globalCompositeOperation = 'source-over'
+
+      for (const p of particles) {
+        p.x += p.vx
+        p.y += p.vy
+        if (p.y > h + 10) { p.y = -10; p.x = Math.random() * w }
+        if (p.x < -10) p.x = w + 10
+        if (p.x > w + 10) p.x = -10
+
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+        ctx.closePath()
+        ctx.fillStyle = `rgba(255,255,255,${p.a})`
+        ctx.fill()
+      }
+
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      ro.disconnect()
+    }
+  }, [])
+
+  return (
+    <canvas
+      ref={ref}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        opacity: 0.55
+      }}
+      aria-hidden="true"
+    />
+  )
+}
