@@ -881,6 +881,50 @@ function hasPolicyAccess(member, commandName) {
   return canAccessCommand(loadPermissionPolicy(), member.id, roleIds, commandName);
 }
 
+function getStaffRoleIdsForTicketing() {
+  const policy = loadPermissionPolicy();
+  const commandRoleIds = policy.commandRoleIds && typeof policy.commandRoleIds === "object" ? policy.commandRoleIds : {};
+  const include = (key) => Array.isArray(commandRoleIds[key]) ? commandRoleIds[key] : [];
+  const roleIds = new Set([
+    ...ownerRoleIds,
+    ...allowedRoleIds,
+    ...include("admin"),
+    ...include("mod"),
+    ...include("modcall"),
+    ...include("ticket"),
+    modCallRoleId,
+    seniorModRoleId,
+    ticketSupportRoleId
+  ].filter(Boolean));
+  return Array.from(roleIds);
+}
+
+async function notifyUrgentStaff(guild, payload) {
+  if (!guild) return { sent: 0, failed: 0 };
+  await guild.members.fetch();
+  const staffRoleIds = new Set(getStaffRoleIdsForTicketing());
+  const ownerIdSet = new Set([guild.ownerId, ...ownerUserIds]);
+  const targets = guild.members.cache
+    .filter((m) => !m.user.bot && (ownerIdSet.has(m.id) || m.roles.cache.some((r) => staffRoleIds.has(r.id))))
+    .map((m) => m.user);
+
+  let sent = 0;
+  let failed = 0;
+  const msg = [
+    `🚨 ${payload.title || "Urgent Staff Alert"}`,
+    payload.summary || "Urgent issue requires staff attention.",
+    payload.link ? `Jump: ${payload.link}` : "",
+    payload.reporterId ? `Reporter: <@${payload.reporterId}>` : ""
+  ].filter(Boolean).join("\n");
+
+  for (const user of targets) {
+    const ok = await user.send(msg).then(() => true).catch(() => false);
+    if (ok) sent += 1;
+    else failed += 1;
+  }
+  return { sent, failed };
+}
+
 function loadSmokeStatus() {
   return readJsonFile(smokeStatusFile, {});
 }
@@ -2975,6 +3019,15 @@ client.on("interactionCreate", async (interaction) => {
         );
         await sendMessageWithGuards(thread, { content: `Case \`${id}\` opened by <@${interaction.user.id}>`, components: [controls, controls2] }, "modcall.controls", reqId);
         await postModCaseContext(thread, row);
+        if (severity === "critical") {
+          const dm = await notifyUrgentStaff(interaction.guild, {
+            title: "Critical Modcall Alert",
+            summary: `Critical case \`${id}\` opened: ${truncate(details || category || "No details", 160)}`,
+            link: thread.url,
+            reporterId: interaction.user.id
+          });
+          logEvent("info", "modcall.critical.dm", { caseId: id, sent: dm.sent, failed: dm.failed });
+        }
         await interaction.reply({ content: `Mod case created: ${thread.toString()} (\`${id}\`)`, ephemeral: true });
         return;
       }
@@ -4320,33 +4373,103 @@ client.on("interactionCreate", async (interaction) => {
         }
         const subject = interaction.options.getString("subject", true);
         const details = interaction.options.getString("details") || "No details provided.";
-        const parent = ticketChannelId
+        const urgency = interaction.options.getString("urgency") || "normal";
+        const intakeChannel = ticketChannelId
           ? await client.channels.fetch(ticketChannelId).catch(() => null)
           : interaction.channel;
 
-        if (!parent || !parent.isTextBased()) {
+        if (!intakeChannel || !intakeChannel.isTextBased()) {
           await interaction.reply({ content: "Ticket channel is not configured or invalid.", ephemeral: true });
           return;
         }
 
-        const supportMention = ticketSupportRoleId ? `<@&${ticketSupportRoleId}>` : "Support team";
-        const seed = await sendMessageWithGuards(parent, { content: `🎫 New ticket from <@${interaction.user.id}> — **${truncate(subject, 120)}**\n${supportMention}\n${truncate(details, 900)}` }, "ticket.create", reqId);
-        if (!seed) {
-          await interaction.reply({ content: "Ticket creation suppressed due to staging/dry-run mode.", ephemeral: true });
-          return;
-        }
-        const thread = await seed.startThread({
-          name: `ticket-${interaction.user.username}-${Date.now().toString(36)}`.slice(0, 95),
-          autoArchiveDuration: 1440,
-          reason: `Ticket by ${interaction.user.tag}`
+        const sanitizedUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 14) || "user";
+        const suffix = Date.now().toString(36).slice(-5);
+        const channelName = `ticket-${sanitizedUser}-${suffix}`.slice(0, 90);
+        const staffRoleIds = getStaffRoleIdsForTicketing();
+        const permissionOverwrites = [
+          {
+            id: interaction.guild.roles.everyone.id,
+            deny: [PermissionsBitField.Flags.ViewChannel]
+          },
+          {
+            id: interaction.user.id,
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory,
+              PermissionsBitField.Flags.AttachFiles,
+              PermissionsBitField.Flags.EmbedLinks
+            ]
+          },
+          {
+            id: client.user.id,
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory,
+              PermissionsBitField.Flags.AttachFiles,
+              PermissionsBitField.Flags.EmbedLinks,
+              PermissionsBitField.Flags.ManageChannels,
+              PermissionsBitField.Flags.ManageMessages
+            ]
+          },
+          ...staffRoleIds.map((roleId) => ({
+            id: roleId,
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory,
+              PermissionsBitField.Flags.AttachFiles,
+              PermissionsBitField.Flags.EmbedLinks,
+              PermissionsBitField.Flags.ManageMessages
+            ]
+          }))
+        ];
+
+        const ticketChannel = await interaction.guild.channels.create({
+          name: channelName,
+          type: ChannelType.GuildText,
+          parent: intakeChannel.parentId || null,
+          topic: `Private ticket for ${interaction.user.tag} (${interaction.user.id}) | urgency:${urgency}`,
+          permissionOverwrites,
+          reason: `Private ticket by ${interaction.user.tag}`
         }).catch(() => null);
 
-        if (!thread) {
-          await interaction.reply({ content: "Unable to create ticket thread. Check bot permissions.", ephemeral: true });
+        if (!ticketChannel || !ticketChannel.isTextBased()) {
+          await interaction.reply({ content: "Unable to create private ticket channel. Check bot Manage Channels/Manage Roles permissions.", ephemeral: true });
           return;
         }
 
-        await interaction.reply({ content: `Ticket created: ${thread.toString()}`, ephemeral: true });
+        const staffMentions = staffRoleIds.map((id) => `<@&${id}>`).join(" ") || (ticketSupportRoleId ? `<@&${ticketSupportRoleId}>` : "Staff");
+        await sendMessageWithGuards(ticketChannel, {
+          content: [
+            `🎫 **Private Support Ticket**`,
+            `Reporter: <@${interaction.user.id}>`,
+            `Urgency: **${urgency.toUpperCase()}**`,
+            `Subject: **${truncate(subject, 120)}**`,
+            `Details: ${truncate(details, 1400)}`,
+            `Staff: ${staffMentions}`
+          ].join("\n")
+        }, "ticket.create.private", reqId);
+
+        await sendMessageWithGuards(intakeChannel, {
+          content: `🧾 Private ticket opened by <@${interaction.user.id}>: ${ticketChannel.toString()} (${urgency})`
+        }, "ticket.create.audit", reqId);
+
+        const urgentKeywords = /(urgent|asap|immediately|now|critical|emergency)/i;
+        const isUrgent = urgency === "urgent" || urgency === "high" || urgentKeywords.test(`${subject} ${details}`);
+        if (isUrgent) {
+          const dm = await notifyUrgentStaff(interaction.guild, {
+            title: "Urgent Ticket Alert",
+            summary: `New ${urgency} private ticket: ${truncate(subject, 140)}`,
+            link: ticketChannel.url,
+            reporterId: interaction.user.id
+          });
+          logEvent("info", "ticket.urgent.dm", { sent: dm.sent, failed: dm.failed, ticketChannelId: ticketChannel.id });
+        }
+
+        await interaction.reply({ content: `Ticket created: ${ticketChannel.toString()} (private)`, ephemeral: true });
         return;
       }
 
@@ -4354,13 +4477,29 @@ client.on("interactionCreate", async (interaction) => {
         const member = await requireStaff(interaction);
         if (!member) return;
         const channel = interaction.channel;
-        if (!channel || channel.type !== ChannelType.PublicThread) {
-          await interaction.reply({ content: "Run this inside the ticket thread you want to close.", ephemeral: true });
+        if (!channel) {
+          await interaction.reply({ content: "Invalid ticket channel.", ephemeral: true });
           return;
         }
-        await channel.setLocked(true, `Closed by ${interaction.user.tag}`).catch(() => {});
-        await channel.setArchived(true, `Closed by ${interaction.user.tag}`).catch(() => {});
-        await interaction.reply({ content: "Ticket thread closed.", ephemeral: true });
+        if (channel.type === ChannelType.PublicThread || channel.type === ChannelType.PrivateThread) {
+          await channel.setLocked(true, `Closed by ${interaction.user.tag}`).catch(() => {});
+          await channel.setArchived(true, `Closed by ${interaction.user.tag}`).catch(() => {});
+          await interaction.reply({ content: "Ticket thread closed.", ephemeral: true });
+          return;
+        }
+        if (channel.type === ChannelType.GuildText && String(channel.name || "").startsWith("ticket-")) {
+          const targetId = channel.topic?.match(/\((\d+)\)/)?.[1] || "";
+          if (targetId) {
+            const user = await interaction.client.users.fetch(targetId).catch(() => null);
+            if (user) {
+              await user.send(`Your ticket (${channel.name}) was closed by staff. If needed, open a new ticket with /ticket create.`).catch(() => {});
+            }
+          }
+          await interaction.reply({ content: "Ticket channel closed.", ephemeral: true });
+          await channel.delete(`Ticket closed by ${interaction.user.tag}`).catch(() => {});
+          return;
+        }
+        await interaction.reply({ content: "Run this inside a ticket channel/thread to close it.", ephemeral: true });
         return;
       }
     }

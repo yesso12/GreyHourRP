@@ -26,6 +26,8 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/ops inventory` can snapshot members, roles, and channels (summary/export).
 - Live moderator call workflow with button intake, SLA escalation, assignment, transfer, and closure.
 - Case evidence intake (attachments/links), context packs, reporter DM updates, and quick safety actions.
+- Private ticket channel workflow with strict visibility (reporter + staff roles only).
+- Urgent ticket/critical issue direct-message paging to owner/admin/mod staff.
 - Moderator shift tracking, coverage view, and weekly moderation digest metrics.
 - Admin control plane with rollback snapshots and guarded high-risk actions.
 - Two-person approval flow for high-risk `/admin` actions.
@@ -207,7 +209,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/announcepreset preset note everyone`
 - `/poll question`
 - `/event create|list|announce|end`
-- `/ticket create|close`
+- `/ticket create|close` (`urgency` supported on create)
 - `/reminder add minutes message`
 - `/reminder list`
 - `/reminder remove id`

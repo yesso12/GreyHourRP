@@ -503,9 +503,19 @@ const commands = [
     .addSubcommand((sub) =>
       sub
         .setName("create")
-        .setDescription("Create a support ticket thread")
+        .setDescription("Create a private support ticket")
         .addStringOption((opt) => opt.setName("subject").setDescription("Short subject").setRequired(true))
         .addStringOption((opt) => opt.setName("details").setDescription("Ticket details").setRequired(false))
+        .addStringOption((opt) =>
+          opt.setName("urgency")
+            .setDescription("How urgent is this issue?")
+            .setRequired(false)
+            .addChoices(
+              { name: "normal", value: "normal" },
+              { name: "high", value: "high" },
+              { name: "urgent", value: "urgent" }
+            )
+        )
     )
     .addSubcommand((sub) =>
       sub
