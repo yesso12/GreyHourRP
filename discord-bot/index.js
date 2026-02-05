@@ -365,8 +365,6 @@ function cleanupAbuseWindows() {
 
 function isAbuseBlocked(interaction) {
   const windowMs = abuseWindowSeconds * 1000;
-  const isPrivileged = interaction.inGuild() && interaction.member && isAuthorizedMember(interaction.member, interaction.guild?.ownerId);
-  if (isPrivileged) return { blocked: false };
   const userCount = hitWindow(abuseUserWindow, interaction.user.id, windowMs);
   const channelKey = interaction.channelId || "dm";
   const channelCount = hitWindow(abuseChannelWindow, channelKey, windowMs);
@@ -676,7 +674,7 @@ function listDataBackups(limit = 10) {
 function restoreDataBackup(file) {
   const target = path.resolve(backupsDir, file);
   const root = path.resolve(backupsDir);
-  if (!target.startsWith(root)) throw new Error("Invalid backup path");
+  if (target !== root && !target.startsWith(`${root}${path.sep}`)) throw new Error("Invalid backup path");
   if (!fs.existsSync(target)) throw new Error("Backup not found");
   const payload = JSON.parse(fs.readFileSync(target, "utf-8"));
   const files = payload.files || {};
@@ -721,7 +719,7 @@ function verifyBackupPayload(payload) {
 function verifyBackupFile(file) {
   const target = path.resolve(backupsDir, file);
   const root = path.resolve(backupsDir);
-  if (!target.startsWith(root)) return { ok: false, message: "Invalid backup path." };
+  if (target !== root && !target.startsWith(`${root}${path.sep}`)) return { ok: false, message: "Invalid backup path." };
   if (!fs.existsSync(target)) return { ok: false, message: "Backup not found." };
   const payload = JSON.parse(fs.readFileSync(target, "utf-8"));
   return verifyBackupPayload(payload);
@@ -787,8 +785,9 @@ function bumpMetric(name, commandName) {
   if (name === "schedulerError") metrics.schedulerErrors += 1;
 }
 
-async function adminFetch(pathname) {
+async function adminFetch(pathname, ctx = {}) {
   bumpMetric("apiCall");
+  const reqId = ctx.reqId || "";
   const headers = {
     "X-Admin-Key": apiKey
   };
@@ -798,13 +797,26 @@ async function adminFetch(pathname) {
     headers.Authorization = authHeader;
   }
 
+  const startedAt = Date.now();
   const res = await fetch(`${apiBase}${pathname}`, {
     headers
   });
   if (!res.ok) {
     bumpMetric("apiError");
+    logEvent("warn", "admin.fetch.error", {
+      reqId,
+      pathname,
+      status: res.status,
+      durationMs: Date.now() - startedAt
+    });
     throw new Error(`${res.status} ${await res.text()}`);
   }
+  logEvent("info", "admin.fetch.ok", {
+    reqId,
+    pathname,
+    status: res.status,
+    durationMs: Date.now() - startedAt
+  });
   return res.json();
 }
 
@@ -861,11 +873,14 @@ function statusMention(status) {
 }
 
 function summarizeMetrics() {
+  const pendingJobs = loadJobs().filter((x) => x.status === "pending").length;
   return [
     `Uptime: ${formatUptime(process.uptime())}`,
     `Commands: ${metrics.commandsTotal} (${metrics.commandErrors} errors)`,
     `API Calls: ${metrics.apiCalls} (${metrics.apiErrors} errors)`,
-    `Scheduler: ${metrics.schedulerRuns} runs (${metrics.schedulerErrors} errors)`
+    `Scheduler: ${metrics.schedulerRuns} runs (${metrics.schedulerErrors} errors)`,
+    `Queue: ${metrics.queueProcessed} processed, ${pendingJobs} pending, ${metrics.queueFailed} failed`,
+    `Abuse Blocks: ${metrics.abuseBlocked}`
   ].join("\n");
 }
 
@@ -895,7 +910,7 @@ async function checkTextChannel(channelId, label) {
 
 async function checkAdminApi() {
   try {
-    const status = await adminFetch("/api/admin/content/server-status");
+    const status = await adminFetch("/api/admin/content/server-status", { reqId: "diag-admin-api" });
     return { ok: true, summary: `Admin API reachable (${status.status || "unknown"})` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -947,15 +962,23 @@ function formatEvent(event) {
   return `\`${event.id}\` • ${event.title} • ${event.time} • ${state}`;
 }
 
-async function requireStaff(interaction) {
+async function requireStaff(interaction, commandName = interaction.commandName || "") {
   if (!interaction.inGuild() || !interaction.guild) {
     await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
     return null;
   }
 
-  const member = await interaction.guild.members.fetch(interaction.user.id);
+  const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+  if (!member) {
+    await interaction.reply({ content: "Unable to load your member profile.", ephemeral: true });
+    return null;
+  }
   if (!isStaffMember(interaction, member)) {
     await interaction.reply({ content: "Unauthorized", ephemeral: true });
+    return null;
+  }
+  if (!hasPolicyAccess(member, commandName)) {
+    await interaction.reply({ content: `Permission policy denied access to /${commandName}.`, ephemeral: true });
     return null;
   }
 
@@ -998,25 +1021,29 @@ const client = new Client({
 });
 
 client.once("clientReady", () => {
-  console.log(`Bot logged in as ${client.user.tag}`);
+  logEvent("info", "discord.ready", { userTag: client.user?.tag || "unknown" });
   if (client.user) {
     client.user.setPresence({
       activities: [{ name: botActivity }],
       status: "online"
     });
   }
+  startMetricsServer();
   runStartupDiagnostics().catch((err) => {
-    console.error("[diag] Startup diagnostics failed", err);
+    logEvent("error", "diag.startup.failed", { error: err instanceof Error ? err.message : String(err) });
   });
+  safeScheduler(processPendingJobs);
+  setInterval(() => safeScheduler(processPendingJobs), Math.max(1, jobWorkerIntervalSeconds) * 1000);
+  setInterval(cleanupAbuseWindows, Math.max(10, abuseWindowSeconds) * 1000);
   startSchedulers();
 });
 
 client.on("error", (err) => {
-  console.error("[discord] client error", err);
+  logEvent("error", "discord.client.error", { error: err instanceof Error ? err.message : String(err) });
 });
 
 client.on("warn", (message) => {
-  console.warn("[discord] warn", message);
+  logEvent("warn", "discord.client.warn", { message: truncate(String(message), 300) });
 });
 
 client.on("guildMemberAdd", async (member) => {
@@ -1024,7 +1051,7 @@ client.on("guildMemberAdd", async (member) => {
   const channel = await client.channels.fetch(welcomeChannelId).catch(() => null);
   if (!channel || !channel.isTextBased()) return;
   const msg = welcomeMessage.replace("{user}", `<@${member.id}>`);
-  await channel.send(msg);
+  await sendMessageWithGuards(channel, { content: msg }, "guildMemberAdd");
 });
 
 client.on("guildMemberRemove", async (member) => {
@@ -1032,7 +1059,7 @@ client.on("guildMemberRemove", async (member) => {
   const channel = await client.channels.fetch(goodbyeChannelId).catch(() => null);
   if (!channel || !channel.isTextBased()) return;
   const msg = goodbyeMessage.replace("{user}", member.user?.username || "A survivor");
-  await channel.send(msg);
+  await sendMessageWithGuards(channel, { content: msg }, "guildMemberRemove");
 });
 
 client.on("messageCreate", async (message) => {
@@ -1052,7 +1079,7 @@ client.on("messageCreate", async (message) => {
   if (!isSuspicious) return;
 
   await message.delete().catch(() => {});
-  await message.channel.send(`⚠️ <@${message.author.id}> message removed by raid mode. Please slow down and avoid mass mentions/links.`).catch(() => {});
+  await sendMessageWithGuards(message.channel, { content: `⚠️ <@${message.author.id}> message removed by raid mode. Please slow down and avoid mass mentions/links.` }, "raidmode.enforcement").catch(() => {});
 });
 
 client.on("interactionCreate", async (interaction) => {
@@ -1075,12 +1102,28 @@ client.on("interactionCreate", async (interaction) => {
 
   if (!interaction.isChatInputCommand()) return;
 
+  const reqId = makeRequestId();
   const auditStartedAt = Date.now();
   let auditStatus = "success";
   let auditNote = "";
 
   try {
+    logEvent("info", "command.received", {
+      reqId,
+      command: interaction.commandName,
+      userId: interaction.user?.id || "",
+      guildId: interaction.guildId || "",
+      channelId: interaction.channelId || ""
+    });
     bumpMetric("command", interaction.commandName);
+    const abuse = isAbuseBlocked(interaction);
+    if (abuse.blocked) {
+      auditStatus = "abuse_blocked";
+      auditNote = `userCount=${abuse.userCount || 0},channelCount=${abuse.channelCount || 0}`;
+      await interaction.reply({ content: "Rate limit shield active. Please slow down and try again shortly.", ephemeral: true });
+      return;
+    }
+
     const wait = checkAndSetCooldown(interaction, interaction.commandName);
     if (wait > 0) {
       auditStatus = "cooldown";
@@ -1709,7 +1752,7 @@ client.on("interactionCreate", async (interaction) => {
           "4. Open support with `/ticket create`",
           "5. Check server status with `/status` and `/playercount`"
         ].join("\n");
-        await interaction.channel.send({ content, components: [buttons] });
+        await sendMessageWithGuards(interaction.channel, { content, components: [buttons] }, "onboard.post", reqId);
         await interaction.reply({ content: "Onboarding panel posted.", ephemeral: true });
         return;
       }
@@ -1752,6 +1795,44 @@ client.on("interactionCreate", async (interaction) => {
           return `${t} • ${x.command} • ${x.status} • ${x.userTag || x.userId || "unknown"}${x.note ? ` • ${x.note}` : ""}`;
         });
         await interaction.reply({ content: truncate(lines.join("\n"), 1900), ephemeral: true });
+        return;
+      }
+      if (sub === "export") {
+        const limit = Math.min(Math.max(interaction.options.getInteger("limit") || 200, 1), 1000);
+        const format = interaction.options.getString("format") || "json";
+        const items = loadAuditEntries(limit).reverse();
+        if (!items.length) {
+          await interaction.reply({ content: "No audit entries to export.", ephemeral: true });
+          return;
+        }
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        if (format === "csv") {
+          const header = "timeUtc,command,status,userId,userTag,guildId,channelId,durationMs,note";
+          const rows = items.map((x) => [
+            x.timeUtc || "",
+            x.command || "",
+            x.status || "",
+            x.userId || "",
+            x.userTag || "",
+            x.guildId || "",
+            x.channelId || "",
+            String(x.durationMs || ""),
+            (x.note || "").replace(/"/g, "\"\"")
+          ].map((v, idx) => idx === 8 ? `"${v}"` : `"${String(v).replace(/"/g, "\"\"")}"`).join(","));
+          const csv = [header, ...rows].join("\n");
+          await interaction.reply({
+            content: `Exported ${items.length} audit entries.`,
+            ephemeral: true,
+            files: [{ attachment: Buffer.from(csv, "utf-8"), name: `audit-export-${stamp}.csv` }]
+          });
+          return;
+        }
+        const json = JSON.stringify(items, null, 2);
+        await interaction.reply({
+          content: `Exported ${items.length} audit entries.`,
+          ephemeral: true,
+          files: [{ attachment: Buffer.from(json, "utf-8"), name: `audit-export-${stamp}.json` }]
+        });
         return;
       }
     }
@@ -1828,7 +1909,16 @@ client.on("interactionCreate", async (interaction) => {
       if (sub === "create") {
         const label = interaction.options.getString("label") || "manual";
         const file = createDataBackup(label, interaction.user.id);
-        await interaction.reply({ content: `Backup created: \`${file}\``, ephemeral: true });
+        const verify = verifyBackupFile(file);
+        const retention = applyBackupRetention();
+        if (!verify.ok) {
+          await interaction.reply({ content: `Backup created but verification failed: \`${file}\` • ${verify.message}`, ephemeral: true });
+          return;
+        }
+        await interaction.reply({
+          content: `Backup created: \`${file}\` • verified • retention deleted ${retention.deleted.length} old backup(s).`,
+          ephemeral: true
+        });
         return;
       }
 
@@ -1846,6 +1936,11 @@ client.on("interactionCreate", async (interaction) => {
 
       if (sub === "restore") {
         const file = interaction.options.getString("file", true);
+        const verify = verifyBackupFile(file);
+        if (!verify.ok) {
+          await interaction.reply({ content: `Refusing restore. Backup verification failed: ${verify.message}`, ephemeral: true });
+          return;
+        }
         restoreDataBackup(file);
         await interaction.reply({ content: `Backup restored: \`${file}\``, ephemeral: true });
         return;
@@ -1946,7 +2041,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "status") {
-      const status = await adminFetch("/api/admin/content/server-status");
+      const status = await adminFetch("/api/admin/content/server-status", { reqId });
       const updatedStamp = status.updatedUtc || status.updated || status.dateUtc || null;
       const embed = new EmbedBuilder()
         .setTitle("Grey Hour RP Status")
@@ -1961,7 +2056,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "statushistory") {
-      const history = await adminFetch("/api/admin/content/status-history");
+      const history = await adminFetch("/api/admin/content/status-history", { reqId });
       const recent = history.slice(0, 3);
       if (!recent.length) {
         await interaction.reply("No status history posted yet.");
@@ -1980,7 +2075,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "updates") {
-      const updates = await adminFetch("/api/admin/content/updates");
+      const updates = await adminFetch("/api/admin/content/updates", { reqId });
       const latest = updates[0];
       if (!latest) {
         await interaction.reply("No updates posted yet.");
@@ -1999,7 +2094,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "transmissions") {
-      const items = await adminFetch("/api/admin/content/transmissions");
+      const items = await adminFetch("/api/admin/content/transmissions", { reqId });
       const latest = items[0];
       if (!latest) {
         await interaction.reply("No transmissions posted yet.");
@@ -2019,7 +2114,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "mods") {
-      const mods = await adminFetch("/api/admin/content/mods");
+      const mods = await adminFetch("/api/admin/content/mods", { reqId });
       const list = mods.slice(0, 10).map(m => `• ${m.name}`).join("\n");
       const embed = new EmbedBuilder()
         .setTitle("Modpack Overview")
@@ -2048,10 +2143,12 @@ client.on("interactionCreate", async (interaction) => {
       if (!member) return;
 
       const question = interaction.options.getString("question", true);
-      const pollMessage = await interaction.channel.send(`📊 **Poll:** ${question}\nReact with 👍 or 👎`);
-      await pollMessage.react("👍").catch(() => {});
-      await pollMessage.react("👎").catch(() => {});
-      await interaction.reply({ content: `Poll created: ${pollMessage.url}`, ephemeral: true });
+      const pollMessage = await sendMessageWithGuards(interaction.channel, { content: `📊 **Poll:** ${question}\nReact with 👍 or 👎` }, "poll.create", reqId);
+      if (pollMessage) {
+        await pollMessage.react("👍").catch(() => {});
+        await pollMessage.react("👎").catch(() => {});
+      }
+      await interaction.reply({ content: pollMessage ? `Poll created: ${pollMessage.url}` : "Poll suppressed due to staging/dry-run mode.", ephemeral: true });
       return;
     }
 
@@ -2111,7 +2208,7 @@ client.on("interactionCreate", async (interaction) => {
             { name: "Event ID", value: evt.id, inline: true }
           )
           .setColor(0x06b6d4);
-        await channel.send({ embeds: [embed] });
+        await sendMessageWithGuards(channel, { embeds: [embed] }, "event.announce", reqId);
         await interaction.reply({ content: `Event announced: ${evt.id}`, ephemeral: true });
         return;
       }
@@ -2151,7 +2248,11 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         const supportMention = ticketSupportRoleId ? `<@&${ticketSupportRoleId}>` : "Support team";
-        const seed = await parent.send(`🎫 New ticket from <@${interaction.user.id}> — **${truncate(subject, 120)}**\n${supportMention}\n${truncate(details, 900)}`);
+        const seed = await sendMessageWithGuards(parent, { content: `🎫 New ticket from <@${interaction.user.id}> — **${truncate(subject, 120)}**\n${supportMention}\n${truncate(details, 900)}` }, "ticket.create", reqId);
+        if (!seed) {
+          await interaction.reply({ content: "Ticket creation suppressed due to staging/dry-run mode.", ephemeral: true });
+          return;
+        }
         const thread = await seed.startThread({
           name: `ticket-${interaction.user.username}-${Date.now().toString(36)}`.slice(0, 95),
           autoArchiveDuration: 1440,
@@ -2183,7 +2284,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "moddiff") {
-      const mods = await adminFetch("/api/admin/content/mods");
+      const mods = await adminFetch("/api/admin/content/mods", { reqId });
       const state = loadState();
       const previous = Array.isArray(state.lastModsSnapshot) ? state.lastModsSnapshot : [];
       const current = mods.map((m) => m.name).filter(Boolean);
@@ -2220,8 +2321,8 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "Announcement channel not configured", ephemeral: true });
         return;
       }
-      await channel.send(everyone ? `@everyone\n${message}` : message);
-      await interaction.reply({ content: "Announcement sent.", ephemeral: true });
+      const sent = await sendMessageWithGuards(channel, { content: everyone ? `@everyone\n${message}` : message }, "announce.send", reqId);
+      await interaction.reply({ content: sent ? "Announcement sent." : "Announcement suppressed due to staging/dry-run mode.", ephemeral: true });
       return;
     }
 
@@ -2355,7 +2456,7 @@ client.on("interactionCreate", async (interaction) => {
       const member = await requireStaff(interaction);
       if (!member) return;
 
-      const activity = await adminFetch("/api/admin/activity?limit=5");
+      const activity = await adminFetch("/api/admin/activity?limit=5", { reqId });
       if (!activity.length) {
         await interaction.reply({ content: "No activity yet.", ephemeral: true });
         return;
@@ -2368,14 +2469,25 @@ client.on("interactionCreate", async (interaction) => {
     auditStatus = "error";
     auditNote = err instanceof Error ? truncate(err.message, 220) : truncate(String(err), 220);
     bumpMetric("commandError");
-    console.error(err);
+    logEvent("error", "command.error", {
+      reqId,
+      command: interaction.commandName || "",
+      error: auditNote
+    });
     if (interaction.deferred) {
       await interaction.editReply({ content: "Error processing command." }).catch(() => {});
     } else if (!interaction.replied) {
       await interaction.reply({ content: "Error processing command.", ephemeral: true });
     }
   } finally {
+    logEvent("info", "command.complete", {
+      reqId,
+      command: interaction.commandName || "",
+      status: auditStatus,
+      durationMs: Date.now() - auditStartedAt
+    });
     appendAuditEntry({
+      reqId,
       timeUtc: new Date().toISOString(),
       durationMs: Date.now() - auditStartedAt,
       guildId: interaction.guildId || "",
@@ -2392,14 +2504,11 @@ client.on("interactionCreate", async (interaction) => {
 async function postStatusUpdate() {
   if (!statusChannelId) return;
   bumpMetric("schedulerRun");
-  const status = await adminFetch("/api/admin/content/server-status");
+  const status = await adminFetch("/api/admin/content/server-status", { reqId: "scheduler-status" });
   const state = loadState();
   const updatedStamp = status.updatedUtc || status.updated || status.dateUtc || "";
   const hash = `${status.status}-${status.message}-${updatedStamp}`;
   if (state.lastStatus === hash) return;
-
-  const channel = await client.channels.fetch(statusChannelId).catch(() => null);
-  if (!channel || !channel.isTextBased()) return;
 
   const previousState = state.lastStatusState || "unknown";
   const mention = statusMention(status.status);
@@ -2414,7 +2523,14 @@ async function postStatusUpdate() {
     .setColor(statusColor(status.status))
     .setTimestamp();
 
-  await channel.send({ content: mention || undefined, embeds: [embed] });
+  enqueueJob({
+    type: "status-update",
+    channelId: statusChannelId,
+    idempotencyKey: `status:${hash}`,
+    content: mention || "",
+    embeds: [embed],
+    maxRetries: 6
+  });
   state.lastStatus = hash;
   state.lastStatusState = status.status || "unknown";
   saveState(state);
@@ -2423,14 +2539,11 @@ async function postStatusUpdate() {
 async function postLatestUpdate() {
   if (!announceChannelId) return;
   bumpMetric("schedulerRun");
-  const updates = await adminFetch("/api/admin/content/updates");
+  const updates = await adminFetch("/api/admin/content/updates", { reqId: "scheduler-updates" });
   if (!updates.length) return;
   const latest = updates[0];
   const state = loadState();
   if (state.lastUpdateId === latest.id) return;
-
-  const channel = await client.channels.fetch(announceChannelId);
-  if (!channel || !channel.isTextBased()) return;
 
   const embed = new EmbedBuilder()
     .setTitle(`Update: ${latest.title}`)
@@ -2441,7 +2554,13 @@ async function postLatestUpdate() {
     )
     .setColor(0xb10f16);
 
-  await channel.send({ embeds: [embed] });
+  enqueueJob({
+    type: "update-post",
+    channelId: announceChannelId,
+    idempotencyKey: `update:${latest.id}`,
+    embeds: [embed],
+    maxRetries: 6
+  });
   state.lastUpdateId = latest.id;
   saveState(state);
 }
@@ -2449,14 +2568,11 @@ async function postLatestUpdate() {
 async function postLatestTransmission() {
   if (!announceChannelId) return;
   bumpMetric("schedulerRun");
-  const items = await adminFetch("/api/admin/content/transmissions");
+  const items = await adminFetch("/api/admin/content/transmissions", { reqId: "scheduler-transmissions" });
   if (!items.length) return;
   const latest = items[0];
   const state = loadState();
   if (state.lastTransmissionId === latest.id) return;
-
-  const channel = await client.channels.fetch(announceChannelId);
-  if (!channel || !channel.isTextBased()) return;
 
   const embed = new EmbedBuilder()
     .setTitle(`Transmission: ${latest.title}`)
@@ -2467,7 +2583,13 @@ async function postLatestTransmission() {
     )
     .setColor(0xb10f16);
 
-  await channel.send({ embeds: [embed] });
+  enqueueJob({
+    type: "transmission-post",
+    channelId: announceChannelId,
+    idempotencyKey: `transmission:${latest.id}`,
+    embeds: [embed],
+    maxRetries: 6
+  });
   state.lastTransmissionId = latest.id;
   saveState(state);
 }
@@ -2475,13 +2597,10 @@ async function postLatestTransmission() {
 async function postModsChange() {
   if (!announceChannelId) return;
   bumpMetric("schedulerRun");
-  const mods = await adminFetch("/api/admin/content/mods");
+  const mods = await adminFetch("/api/admin/content/mods", { reqId: "scheduler-mods" });
   const state = loadState();
   const hash = hashString(JSON.stringify(mods));
   if (state.lastModsHash === hash) return;
-
-  const channel = await client.channels.fetch(announceChannelId);
-  if (!channel || !channel.isTextBased()) return;
 
   const embed = new EmbedBuilder()
     .setTitle("Modpack Updated")
@@ -2492,7 +2611,13 @@ async function postModsChange() {
     )
     .setColor(0xb10f16);
 
-  await channel.send({ embeds: [embed] });
+  enqueueJob({
+    type: "mods-post",
+    channelId: announceChannelId,
+    idempotencyKey: `mods:${hash}`,
+    embeds: [embed],
+    maxRetries: 6
+  });
   state.lastModsHash = hash;
   state.lastModsSnapshot = mods.map((m) => m.name).filter(Boolean);
   saveState(state);
@@ -2501,15 +2626,12 @@ async function postModsChange() {
 async function postActivityLog() {
   if (!logChannelId) return;
   bumpMetric("schedulerRun");
-  const activity = await adminFetch("/api/admin/activity?limit=20");
+  const activity = await adminFetch("/api/admin/activity?limit=20", { reqId: "scheduler-activity" });
   const state = loadState();
   const lastSeen = state.lastActivityTime || 0;
 
   const items = activity.filter(a => new Date(a.timeUtc || 0).getTime() > lastSeen);
   if (!items.length) return;
-
-  const channel = await client.channels.fetch(logChannelId);
-  if (!channel || !channel.isTextBased()) return;
 
   for (const item of items.reverse()) {
     const embed = new EmbedBuilder()
@@ -2517,7 +2639,13 @@ async function postActivityLog() {
       .setDescription(`${item.action} • ${item.target}`)
       .addFields({ name: "User", value: `${item.user} (${item.role})`, inline: true })
       .setColor(0x9ca3af);
-    await channel.send({ embeds: [embed] });
+    enqueueJob({
+      type: "activity-post",
+      channelId: logChannelId,
+      idempotencyKey: `activity:${item.timeUtc || ""}:${item.action || ""}:${item.target || ""}`,
+      embeds: [embed],
+      maxRetries: 6
+    });
   }
 
   const newest = items[items.length - 1];
@@ -2534,10 +2662,13 @@ async function runReminders() {
   if (!due.length) return;
 
   for (const r of due) {
-    const channel = await client.channels.fetch(r.channelId || announceChannelId);
-    if (channel && channel.isTextBased()) {
-      await channel.send(r.message);
-    }
+    enqueueJob({
+      type: "reminder-post",
+      channelId: r.channelId || announceChannelId,
+      idempotencyKey: `reminder:${r.id}`,
+      content: r.message,
+      maxRetries: 6
+    });
   }
   const remaining = reminders.filter(r => r.due > now);
   saveReminders(remaining);
@@ -2555,12 +2686,15 @@ async function runDailyReminder() {
   if (state.lastDailyReminder === stamp) return;
 
   if (now.getHours() === hh && now.getMinutes() === mm) {
-    const channel = await client.channels.fetch(dailyReminderChannelId);
-    if (channel && channel.isTextBased()) {
-      await channel.send(dailyReminderMessage);
-      state.lastDailyReminder = stamp;
-      saveState(state);
-    }
+    enqueueJob({
+      type: "daily-reminder",
+      channelId: dailyReminderChannelId,
+      idempotencyKey: `daily-reminder:${stamp}`,
+      content: dailyReminderMessage,
+      maxRetries: 6
+    });
+    state.lastDailyReminder = stamp;
+    saveState(state);
   }
 }
 
@@ -2576,16 +2710,19 @@ async function runDailySummary() {
   if (state.lastDailySummary === stamp) return;
   if (now.getHours() !== hh || now.getMinutes() !== mm) return;
 
-  const channel = await client.channels.fetch(dailySummaryChannelId).catch(() => null);
-  if (!channel || !channel.isTextBased()) return;
-
   const embed = new EmbedBuilder()
     .setTitle("Daily Bot Summary")
     .setDescription(summarizeMetrics())
     .setColor(0x14b8a6)
     .setTimestamp();
 
-  await channel.send({ embeds: [embed] });
+  enqueueJob({
+    type: "daily-summary",
+    channelId: dailySummaryChannelId,
+    idempotencyKey: `daily-summary:${stamp}`,
+    embeds: [embed],
+    maxRetries: 6
+  });
   state.lastDailySummary = stamp;
   saveState(state);
 }
@@ -2612,10 +2749,21 @@ async function runCommunityMaintenance() {
   saveCommunity(community);
 }
 
+async function runBackupMaintenance() {
+  bumpMetric("schedulerRun");
+  const result = applyBackupRetention();
+  if (result.deleted.length) {
+    logEvent("info", "backup.retention.deleted", { count: result.deleted.length });
+  }
+}
+
 function safeScheduler(task) {
   task().catch((err) => {
     bumpMetric("schedulerError");
-    console.error("[scheduler] task failed", err);
+    logEvent("error", "scheduler.task.failed", {
+      task: task.name || "anonymous",
+      error: err instanceof Error ? err.message : String(err)
+    });
   });
 }
 
@@ -2635,6 +2783,7 @@ function startSchedulers() {
   setInterval(() => safeScheduler(runDailyReminder), 60 * 1000);
   setInterval(() => safeScheduler(runDailySummary), 60 * 1000);
   setInterval(() => safeScheduler(runCommunityMaintenance), 5 * 60 * 1000);
+  setInterval(() => safeScheduler(runBackupMaintenance), 60 * 60 * 1000);
 }
 
 client.login(token);

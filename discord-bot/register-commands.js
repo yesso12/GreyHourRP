@@ -382,6 +382,20 @@ const commands = [
       sub.setName("list")
         .setDescription("Show recent audit entries")
         .addIntegerOption((opt) => opt.setName("limit").setDescription("How many entries (1-50)").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("export")
+        .setDescription("Export audit entries as a file")
+        .addStringOption((opt) =>
+          opt.setName("format")
+            .setDescription("Export format")
+            .setRequired(false)
+            .addChoices(
+              { name: "json", value: "json" },
+              { name: "csv", value: "csv" }
+            )
+        )
+        .addIntegerOption((opt) => opt.setName("limit").setDescription("How many entries (1-1000)").setRequired(false))
     ),
   new SlashCommandBuilder()
     .setName("incident")

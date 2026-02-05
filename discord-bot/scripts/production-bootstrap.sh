@@ -60,11 +60,15 @@ if ! systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | g
   fail "systemd unit ${SERVICE_NAME}.service is not registered. Run deploy first."
 fi
 
-log "INFO" "step 1/4: register discord slash commands"
+log "INFO" "step 1/5: register discord slash commands"
 npm run register
 pass "slash commands registered"
 
-log "INFO" "step 2/4: ensure service is enabled (idempotent)"
+log "INFO" "step 2/5: canary pre-smoke (must pass before restart)"
+bash scripts/smoke-check.sh
+pass "pre-smoke check passed"
+
+log "INFO" "step 3/5: ensure service is enabled (idempotent)"
 if run_systemctl is-enabled "${SERVICE_NAME}" >/dev/null 2>&1; then
   pass "service already enabled"
 else
@@ -72,7 +76,7 @@ else
   pass "service enabled"
 fi
 
-log "INFO" "step 3/4: restart service"
+log "INFO" "step 4/5: restart service"
 run_systemctl restart "${SERVICE_NAME}"
 if ! wait_for_service_active "${SERVICE_NAME}" "${RESTART_TIMEOUT_SECONDS}"; then
   run_systemctl --no-pager --full status "${SERVICE_NAME}" || true
@@ -80,7 +84,7 @@ if ! wait_for_service_active "${SERVICE_NAME}" "${RESTART_TIMEOUT_SECONDS}"; the
 fi
 pass "service restarted and active"
 
-log "INFO" "step 4/4: smoke-check"
+log "INFO" "step 5/5: canary post-smoke"
 bash scripts/smoke-check.sh
 pass "smoke-check succeeded"
 

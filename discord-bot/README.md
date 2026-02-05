@@ -11,6 +11,14 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - Onboarding now supports interactive role-toggle buttons for alert opt-ins.
 - Built-in per-command cooldown/rate limits reduce spam in high-traffic channels.
 - Enterprise ops: structured command audit log, moderation incident tracker, and data backup/restore workflows.
+- Staging mode + dry-run mode for safe production rehearsals.
+- Startup config validation with explicit errors and warnings.
+- Persistent on-disk job queue for reminders/auto-announcements.
+- Structured JSON logs with per-command request IDs.
+- Abuse shield (per-user + per-channel burst limiting).
+- Permission policy file for command-level role gates.
+- Prometheus metrics endpoint (`/metrics`) + health probe (`/healthz`).
+- Backup verification and retention policy (daily + weekly).
 - Admin-only broadcast to announcement channel.
 - Auto status polling + change announcements.
 - Auto updates polling + announcements.
@@ -42,9 +50,10 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - Command: `npm run bootstrap:prod`
 - What it does:
   - Registers slash commands.
+  - Runs a canary pre-smoke check before restart.
   - Ensures `greyhourrp-discord-bot` service is enabled (safe on re-run).
   - Restarts the service and waits until it is active.
-  - Runs smoke-check against the Admin API + service health.
+  - Runs canary post-smoke check against Admin API + service health.
 - Optional env vars:
   - `SERVICE_NAME` (default `greyhourrp-discord-bot`)
   - `RESTART_TIMEOUT_SECONDS` (default `30`)
@@ -97,6 +106,17 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `DAILY_REMINDER_CHANNEL_ID`
 - `DAILY_SUMMARY_TIME` (HH:MM)
 - `DAILY_SUMMARY_CHANNEL_ID`
+- `STAGING_MODE` (true/false)
+- `DRY_RUN_MODE` (true/false)
+- `METRICS_PORT` (set to enable Prometheus endpoint)
+- `METRICS_HOST` (default `127.0.0.1`)
+- `ABUSE_WINDOW_SECONDS` (default 30)
+- `ABUSE_USER_MAX_COMMANDS` (default 12)
+- `ABUSE_CHANNEL_MAX_COMMANDS` (default 40)
+- `JOB_WORKER_INTERVAL_SECONDS` (default 5)
+- `BACKUP_RETENTION_DAILY` (default 14)
+- `BACKUP_RETENTION_WEEKLY` (default 8)
+- `PERMISSION_POLICY_FILE` (default `config/permissions-policy.json`)
 
 ## Commands
 - `/ping`
@@ -104,6 +124,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/health`
 - `/metrics`
 - `/audit list`
+- `/audit export`
 - `/incident create|list|resolve`
 - `/backup create|list|restore`
 - `/lfg create|list|close`

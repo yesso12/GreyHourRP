@@ -1,0 +1,10 @@
+{
+  "allowUserIds": [],
+  "denyUserIds": [],
+  "commandRoleIds": {
+    "backup": [],
+    "incident": [],
+    "audit": [],
+    "announce": []
+  }
+}
