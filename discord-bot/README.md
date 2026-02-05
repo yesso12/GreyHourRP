@@ -159,6 +159,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/rolesync preview|validate`
 - `/case assign-next`
 - `/staffpanel`
+- `/staffquickstart`
 - `/playbook topic`
 - `/handoff include_cases`
 - `/permissions audit`

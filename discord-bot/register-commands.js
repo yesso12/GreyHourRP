@@ -237,6 +237,10 @@ const commands = [
     .setDescription("Post a one-click staff control panel")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
   new SlashCommandBuilder()
+    .setName("staffquickstart")
+    .setDescription("Post and pin a staff quickstart guide")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+  new SlashCommandBuilder()
     .setName("playbook")
     .setDescription("Show moderator response playbooks")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)

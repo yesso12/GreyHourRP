@@ -3907,6 +3907,50 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
+    if (interaction.commandName === "staffquickstart") {
+      const staff = await requireStaff(interaction, "ops");
+      if (!staff) return;
+      if (!interaction.channel || !interaction.channel.isTextBased()) {
+        await interaction.reply({ content: "Invalid channel for quickstart post.", ephemeral: true });
+        return;
+      }
+      const quickstart = [
+        "## Staff Quickstart",
+        "1) Intake + triage",
+        "- `/modcall create` to open a case",
+        "- `/case assign-next` to route to least-busy on-shift mod",
+        "- `/modcall priority` for urgent escalation",
+        "2) Live response",
+        "- `/modcall status` to keep reporter updated",
+        "- `/modcall evidence` to attach links/files",
+        "- `/playbook topic:<harassment|cheating|spam|raid>` for SOP",
+        "3) Operations + safety",
+        "- `/ops status` and `/ops safemode on|off`",
+        "- `/permissions audit` to detect missing bot perms",
+        "- `/rolesync preview` then `/rolesync validate apply:true`",
+        "4) Shift turnover",
+        "- `/handoff include_cases:true`",
+        "- `/staffstats` for performance snapshot",
+        "5) Announcements",
+        "- `/announce preset:maintenance everyone:true`",
+        "- `/announcepreset preset:incident note:\"...\"`"
+      ].join("\n");
+      const posted = await sendMessageWithGuards(interaction.channel, { content: quickstart }, "staffquickstart.post", reqId);
+      if (!posted) {
+        await interaction.reply({ content: "Quickstart suppressed due to staging/dry-run mode.", ephemeral: true });
+        return;
+      }
+      let pinStatus = "posted";
+      try {
+        await posted.pin("Staff quickstart guide");
+        pinStatus = "posted and pinned";
+      } catch {
+        pinStatus = "posted (pin failed: missing permission or pin limit)";
+      }
+      await interaction.reply({ content: `Staff quickstart ${pinStatus}: ${posted.url}`, ephemeral: true });
+      return;
+    }
+
     if (interaction.commandName === "playbook") {
       const staff = await requireStaff(interaction, "modcall");
       if (!staff) return;
