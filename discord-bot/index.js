@@ -1047,8 +1047,10 @@ function bumpMetric(name, commandName) {
 
 async function adminFetch(pathname, ctx = {}) {
   bumpMetric("apiCall");
-  const reqId = ctx.reqId || "";
-  const headers = {};
+  const reqId = ctx.reqId || randomUUID();
+  const headers = {
+    "X-Request-ID": reqId
+  };
 
   const authHeader = getAdminAuthHeader();
   if (authHeader) {
@@ -1221,6 +1223,51 @@ async function getPlayerCount() {
 function formatEvent(event) {
   const state = event.ended ? "ended" : "active";
   return `\`${event.id}\` • ${event.title} • ${event.time} • ${state}`;
+}
+
+async function renderStaffList(interaction) {
+  if (!interaction.inGuild() || !interaction.guild) {
+    await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+    return;
+  }
+
+  const guild = interaction.guild;
+  await guild.members.fetch();
+  await guild.roles.fetch();
+
+  const ownerIds = new Set([guild.ownerId, ...ownerRoleIds]);
+  const adminIds = new Set(allowedRoleIds);
+  const modIds = new Set([modCallRoleId, seniorModRoleId].filter(Boolean));
+
+  const ownerMembers = guild.members.cache
+    .filter((m) => m.id === guild.ownerId || m.roles.cache.some((r) => ownerIds.has(r.id)))
+    .map((m) => `<@${m.id}>`)
+    .slice(0, 30);
+
+  const adminMembers = guild.members.cache
+    .filter((m) => m.roles.cache.some((r) => adminIds.has(r.id)))
+    .map((m) => `<@${m.id}>`)
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .slice(0, 50);
+
+  const modMembers = guild.members.cache
+    .filter((m) => m.roles.cache.some((r) => modIds.has(r.id)))
+    .map((m) => `<@${m.id}>`)
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .slice(0, 80);
+
+  const embed = new EmbedBuilder()
+    .setTitle("Staff Directory")
+    .setDescription("Current staff by role group")
+    .addFields(
+      { name: "Owners", value: ownerMembers.join(", ") || "None configured", inline: false },
+      { name: "Admins", value: adminMembers.join(", ") || "None configured", inline: false },
+      { name: "Moderators", value: modMembers.join(", ") || "None configured", inline: false }
+    )
+    .setColor(0x2563eb)
+    .setTimestamp();
+
+  await interaction.reply({ embeds: [embed] });
 }
 
 async function requireStaff(interaction, commandName = interaction.commandName || "") {
@@ -1610,7 +1657,7 @@ client.on("interactionCreate", async (interaction) => {
           "/raid, /signup, /mapmark, /safehouse",
           "/commend, /leaderboard, /optin, /onboard, /raidmode",
           "/squadvc, /survivor, /pz",
-          "/whois, /playercount, /serverip",
+          "/whois, /playercount, /serverip, /staff",
           "/status, /statushistory",
           "/updates, /transmissions, /mods",
           "/rules, /join, /links, /lore, /moddiff",
@@ -1670,6 +1717,11 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
       await interaction.reply(`Server connect: \`${serverIp}\``);
+      return;
+    }
+
+    if (interaction.commandName === "staff") {
+      await renderStaffList(interaction);
       return;
     }
 

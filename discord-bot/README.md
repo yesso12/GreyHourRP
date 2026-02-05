@@ -5,6 +5,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 ## Features
 - Slash commands for status, status history, transmissions, updates, mods, lore, links, and health checks.
 - Member tools: `/whois`, `/playercount`, `/serverip`.
+- Member tools: `/whois`, `/playercount`, `/serverip`, `/staff`.
 - Staff tools: `/poll`, `/event`, `/ticket`, `/purge`, `/slowmode`, `/lock`, `/unlock`, `/metrics`.
 - Community suite: `/lfg`, `/faction`, `/trade`, `/contest`, `/raid`, `/signup`, `/mapmark`, `/safehouse`.
 - Engagement suite: `/commend`, `/leaderboard`, `/squadvc`, `/survivor`, `/pz`, `/optin`, `/onboard`, `/raidmode`.
@@ -177,6 +178,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/whois`
 - `/playercount`
 - `/serverip`
+- `/staff`
 - `/links`
 - `/lore`
 - `/status`
