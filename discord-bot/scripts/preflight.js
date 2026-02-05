@@ -53,7 +53,7 @@ async function main() {
   });
 
   await new Promise((resolve, reject) => {
-    client.once("ready", resolve);
+    client.once("clientReady", resolve);
     client.once("error", reject);
     client.login(process.env.DISCORD_TOKEN).catch(reject);
   });
