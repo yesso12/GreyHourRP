@@ -1373,6 +1373,57 @@ async function closeTicketConversation(interaction, channel) {
   return true;
 }
 
+function isTicketLikeChannel(channel) {
+  if (!channel) return false;
+  if (channel.type === ChannelType.GuildText) {
+    return String(channel.name || "").startsWith("ticket-");
+  }
+  if (channel.type === ChannelType.PublicThread || channel.type === ChannelType.PrivateThread) {
+    const parent = channel.parent || null;
+    return parent?.type === ChannelType.GuildText && String(parent.name || "").startsWith("ticket-");
+  }
+  return false;
+}
+
+async function cleanupCaseConversations(guild, row, actorTag = "system") {
+  if (!guild || !row) return { deleted: 0, details: [] };
+  const targets = [];
+  const details = [];
+
+  if (row.threadId) {
+    const thread = await guild.channels.fetch(row.threadId).catch(() => null);
+    if (thread && (thread.type === ChannelType.PublicThread || thread.type === ChannelType.PrivateThread)) {
+      targets.push(thread);
+    }
+  }
+
+  if (row.sourceChannelId) {
+    const source = await guild.channels.fetch(row.sourceChannelId).catch(() => null);
+    if (source && isTicketLikeChannel(source)) {
+      if (source.type === ChannelType.PublicThread || source.type === ChannelType.PrivateThread) {
+        const parent = source.parent || null;
+        if (parent && isTicketLikeChannel(parent)) targets.push(parent);
+        else targets.push(source);
+      } else {
+        targets.push(source);
+      }
+    }
+  }
+
+  const unique = new Map();
+  for (const c of targets) unique.set(c.id, c);
+
+  let deleted = 0;
+  for (const channel of unique.values()) {
+    const ok = await channel.delete(`Case cleanup by ${actorTag}`).then(() => true).catch(() => false);
+    if (ok) {
+      deleted += 1;
+      details.push(`#${channel.name || channel.id}`);
+    }
+  }
+  return { deleted, details };
+}
+
 function getOncallPair() {
   const rows = loadOncall().filter((x) => x && x.userId);
   if (!rows.length) return { primary: null, backup: null };
@@ -2993,7 +3044,13 @@ client.on("interactionCreate", async (interaction) => {
         metrics.modCallsClosed += 1;
         saveModCallsState(data);
         await notifyReporterUpdate(interaction.client, row, `Your case has been closed. Reason: ${row.closeReason}`);
-        await interaction.reply({ content: `Case \`${caseId}\` closed.`, ephemeral: true });
+        const cleanup = await cleanupCaseConversations(interaction.guild, row, interaction.user.tag);
+        await interaction.reply({
+          content: cleanup.deleted
+            ? `Case \`${caseId}\` closed. Deleted linked ticket/chat channel(s): ${cleanup.details.join(", ")}`
+            : `Case \`${caseId}\` closed.`,
+          ephemeral: true
+        });
         return;
       }
 
@@ -4540,7 +4597,13 @@ client.on("interactionCreate", async (interaction) => {
           await sendMessageWithGuards(thread, { content: `✅ Case closed by <@${interaction.user.id}>. Reason: ${row.closeReason}` }, "modcall.close", reqId);
         }
         await notifyReporterUpdate(interaction.client, row, `Your case has been closed. Reason: ${row.closeReason}`);
-        await interaction.reply({ content: `Case \`${id}\` closed.`, ephemeral: true });
+        const cleanup = await cleanupCaseConversations(interaction.guild, row, interaction.user.tag);
+        await interaction.reply({
+          content: cleanup.deleted
+            ? `Case \`${id}\` closed. Deleted linked ticket/chat channel(s): ${cleanup.details.join(", ")}`
+            : `Case \`${id}\` closed.`,
+          ephemeral: true
+        });
         return;
       }
 
