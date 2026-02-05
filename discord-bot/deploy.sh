@@ -14,8 +14,10 @@ fi
 sudo mkdir -p "$APP_DIR"
 
 # Sync files without rsync
-sudo rm -rf "$APP_DIR"/*
+sudo find "$APP_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 sudo cp -a ./ "$APP_DIR/"
+
+sudo bash -lc "cd '$APP_DIR' && (${NPM_BIN} ci --omit=dev || ${NPM_BIN} install --omit=dev)"
 
 sudo bash -c "cat > /etc/systemd/system/${SERVICE_NAME}.service" <<SERVICE
 [Unit]
@@ -36,8 +38,8 @@ SERVICE
 
 sudo systemctl daemon-reload
 sudo systemctl enable ${SERVICE_NAME}
-sudo systemctl restart ${SERVICE_NAME}
 
-${NPM_BIN} run register
+sudo bash -lc "cd '$APP_DIR' && set -a && source .env && set +a && ${NPM_BIN} run register"
+sudo systemctl restart ${SERVICE_NAME}
 
 echo "Deploy complete. Check status with: systemctl status ${SERVICE_NAME}"

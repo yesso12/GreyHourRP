@@ -3,7 +3,7 @@
 This bot powers advanced Discord automation for Grey Hour RP using the Admin API.
 
 ## Features
-- Slash commands for status, status history, transmissions, updates, mods, lore, and links.
+- Slash commands for status, status history, transmissions, updates, mods, lore, links, and health checks.
 - Admin-only broadcast to announcement channel.
 - Auto status polling + change announcements.
 - Auto updates polling + announcements.
@@ -24,6 +24,8 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
    - `npm run register`
 5. Start bot:
    - `npm start`
+6. Run smoke check:
+   - `npm run smoke`
 
 ## Required env vars
 - `DISCORD_TOKEN`
@@ -36,6 +38,9 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `LOG_CHANNEL_ID`
 
 ## Optional env vars
+- `ADMIN_BASIC_AUTH_USER` (for nginx Basic Auth protecting Admin API)
+- `ADMIN_BASIC_AUTH_PASS` (for nginx Basic Auth protecting Admin API)
+- `ADMIN_BASIC_AUTH_HEADER` (alternative to the two above, format: `Basic ...`)
 - `ALLOWED_ROLE_IDS` (comma-separated)
 - `OWNER_ROLE_IDS` (comma-separated)
 - `WELCOME_CHANNEL_ID`
@@ -58,6 +63,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 ## Commands
 - `/ping`
 - `/help`
+- `/health`
 - `/links`
 - `/lore`
 - `/status`
@@ -77,3 +83,4 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 ## Notes
 - The bot uses Admin API endpoints and respects existing role permissions.
 - Keep the API protected behind nginx basic auth and a strong API key.
+- Smoke check validates Admin API auth + service state: `npm run smoke`

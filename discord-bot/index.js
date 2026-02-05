@@ -6,6 +6,9 @@ import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
 const token = process.env.DISCORD_TOKEN;
 const apiBase = process.env.ADMIN_API_BASE || "";
 const apiKey = process.env.ADMIN_API_KEY || "";
+const adminBasicAuthUser = process.env.ADMIN_BASIC_AUTH_USER || "";
+const adminBasicAuthPass = process.env.ADMIN_BASIC_AUTH_PASS || "";
+const adminBasicAuthHeader = process.env.ADMIN_BASIC_AUTH_HEADER || "";
 const announceChannelId = process.env.ANNOUNCE_CHANNEL_ID || "";
 const statusChannelId = process.env.STATUS_CHANNEL_ID || "";
 const logChannelId = process.env.LOG_CHANNEL_ID || "";
@@ -19,11 +22,11 @@ const dailyReminderMessage = process.env.DAILY_REMINDER_MESSAGE || "";
 const dailyReminderChannelId = process.env.DAILY_REMINDER_CHANNEL_ID || "";
 const allowedRoleIds = (process.env.ALLOWED_ROLE_IDS || "").split(",").map(r => r.trim()).filter(Boolean);
 const ownerRoleIds = (process.env.OWNER_ROLE_IDS || "").split(",").map(r => r.trim()).filter(Boolean);
-const autoStatusMinutes = Number(process.env.AUTO_STATUS_MINUTES || 10);
-const autoActivityMinutes = Number(process.env.AUTO_ACTIVITY_MINUTES || 10);
-const autoUpdatesMinutes = Number(process.env.AUTO_UPDATES_MINUTES || 30);
-const autoTransmissionsMinutes = Number(process.env.AUTO_TRANSMISSIONS_MINUTES || 30);
-const autoModsMinutes = Number(process.env.AUTO_MODS_MINUTES || 60);
+const autoStatusMinutes = parsePositiveMinutes(process.env.AUTO_STATUS_MINUTES, 10, "AUTO_STATUS_MINUTES");
+const autoActivityMinutes = parsePositiveMinutes(process.env.AUTO_ACTIVITY_MINUTES, 10, "AUTO_ACTIVITY_MINUTES");
+const autoUpdatesMinutes = parsePositiveMinutes(process.env.AUTO_UPDATES_MINUTES, 30, "AUTO_UPDATES_MINUTES");
+const autoTransmissionsMinutes = parsePositiveMinutes(process.env.AUTO_TRANSMISSIONS_MINUTES, 30, "AUTO_TRANSMISSIONS_MINUTES");
+const autoModsMinutes = parsePositiveMinutes(process.env.AUTO_MODS_MINUTES, 60, "AUTO_MODS_MINUTES");
 const siteUrl = process.env.SITE_URL || apiBase || "https://greyhourrp.xyz";
 const botActivity = process.env.BOT_ACTIVITY_TEXT || "Grey Hour RP | /help";
 const loreSnippet = process.env.LORE_SNIPPET ||
@@ -80,16 +83,107 @@ function saveReminders(list) {
 }
 
 async function adminFetch(pathname) {
+  const headers = {
+    "X-Admin-Key": apiKey
+  };
+
+  const authHeader = getAdminAuthHeader();
+  if (authHeader) {
+    headers.Authorization = authHeader;
+  }
+
   const res = await fetch(`${apiBase}${pathname}`, {
-    headers: { "X-Admin-Key": apiKey }
+    headers
   });
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   return res.json();
 }
 
+function getAdminAuthHeader() {
+  if (adminBasicAuthHeader) {
+    return adminBasicAuthHeader.startsWith("Basic ")
+      ? adminBasicAuthHeader
+      : `Basic ${adminBasicAuthHeader}`;
+  }
+
+  if (adminBasicAuthUser && adminBasicAuthPass) {
+    const tokenValue = Buffer.from(`${adminBasicAuthUser}:${adminBasicAuthPass}`).toString("base64");
+    return `Basic ${tokenValue}`;
+  }
+
+  return "";
+}
+
 function hasRole(member, ids) {
   if (!ids.length) return false;
   return member.roles.cache.some(r => ids.includes(r.id));
+}
+
+function parsePositiveMinutes(raw, fallback, label) {
+  const n = Number(raw ?? fallback);
+  if (!Number.isFinite(n) || n <= 0) {
+    console.warn(`Invalid ${label}="${raw}". Using fallback ${fallback}.`);
+    return fallback;
+  }
+  return n;
+}
+
+function intervalMs(minutes) {
+  return Math.max(1, Math.floor(minutes)) * 60 * 1000;
+}
+
+function isAuthorizedMember(member, guildOwnerId) {
+  if (!member) return false;
+  if (guildOwnerId && member.id === guildOwnerId) return true;
+  return hasRole(member, allowedRoleIds) || hasRole(member, ownerRoleIds);
+}
+
+function formatUptime(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours || days) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  return parts.join(" ");
+}
+
+async function checkTextChannel(channelId, label) {
+  if (!channelId) return { ok: false, summary: `${label}: not configured` };
+  const channel = await client.channels.fetch(channelId).catch(() => null);
+  if (!channel) return { ok: false, summary: `${label}: not found (${channelId})` };
+  if (!channel.isTextBased()) return { ok: false, summary: `${label}: not text-based (${channelId})` };
+  return { ok: true, summary: `${label}: #${channel.name || "unknown"} (${channelId})` };
+}
+
+async function checkAdminApi() {
+  try {
+    const status = await adminFetch("/api/admin/content/server-status");
+    return { ok: true, summary: `Admin API reachable (${status.status || "unknown"})` };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, summary: `Admin API error: ${truncate(msg, 160)}` };
+  }
+}
+
+async function runStartupDiagnostics() {
+  console.log("[diag] Starting startup diagnostics...");
+  console.log(`[diag] Scheduler minutes: status=${autoStatusMinutes}, updates=${autoUpdatesMinutes}, transmissions=${autoTransmissionsMinutes}, mods=${autoModsMinutes}, activity=${autoActivityMinutes}`);
+  console.log(`[diag] Role gates: allowedRoleIds=${allowedRoleIds.length}, ownerRoleIds=${ownerRoleIds.length}`);
+  console.log(`[diag] Admin auth headers: x-admin-key=${apiKey ? "set" : "missing"}, basic-auth=${getAdminAuthHeader() ? "set" : "missing"}`);
+
+  const checks = await Promise.all([
+    checkAdminApi(),
+    checkTextChannel(announceChannelId, "Announcement channel"),
+    checkTextChannel(statusChannelId, "Status channel"),
+    checkTextChannel(logChannelId, "Log channel")
+  ]);
+
+  for (const check of checks) {
+    console.log(`[diag] ${check.ok ? "OK" : "WARN"} ${check.summary}`);
+  }
 }
 
 function hashString(str) {
@@ -121,7 +215,7 @@ const client = new Client({
   ]
 });
 
-client.once("ready", () => {
+client.once("clientReady", () => {
   console.log(`Bot logged in as ${client.user.tag}`);
   if (client.user) {
     client.user.setPresence({
@@ -129,7 +223,18 @@ client.once("ready", () => {
       status: "online"
     });
   }
+  runStartupDiagnostics().catch((err) => {
+    console.error("[diag] Startup diagnostics failed", err);
+  });
   startSchedulers();
+});
+
+client.on("error", (err) => {
+  console.error("[discord] client error", err);
+});
+
+client.on("warn", (message) => {
+  console.warn("[discord] warn", message);
 });
 
 client.on("guildMemberAdd", async (member) => {
@@ -164,6 +269,7 @@ client.on("interactionCreate", async (interaction) => {
           "/status, /statushistory",
           "/updates, /transmissions, /mods",
           "/rules, /join, /links, /lore",
+          "/health",
           "/announce, /reminder, /activity",
           "/roll"
         ].join("\n"),
@@ -180,10 +286,52 @@ client.on("interactionCreate", async (interaction) => {
           { name: "Website", value: links.site, inline: false },
           { name: "Rules", value: links.rules, inline: false },
           { name: "How to Join", value: links.join, inline: false },
-          { name: "Updates", value: links.updates, inline: false }
+          { name: "Updates", value: links.updates, inline: false },
+          { name: "Transmissions", value: links.transmissions, inline: false },
+          { name: "Mods", value: links.mods, inline: false }
         )
         .setColor(0xb10f16);
       await interaction.reply({ embeds: [embed] });
+      return;
+    }
+
+    if (interaction.commandName === "health") {
+      if (!interaction.inGuild() || !interaction.guild) {
+        await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+        return;
+      }
+
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      const allowed = isAuthorizedMember(member, interaction.guild.ownerId);
+      if (!allowed) {
+        await interaction.reply({ content: "Unauthorized", ephemeral: true });
+        return;
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      const checks = await Promise.all([
+        checkAdminApi(),
+        checkTextChannel(announceChannelId, "Announcement channel"),
+        checkTextChannel(statusChannelId, "Status channel"),
+        checkTextChannel(logChannelId, "Log channel")
+      ]);
+
+      const summary = checks.map((c) => `${c.ok ? "✅" : "❌"} ${c.summary}`).join("\n");
+      const healthy = checks.every((c) => c.ok);
+
+      const embed = new EmbedBuilder()
+        .setTitle("Bot Health")
+        .setDescription(summary)
+        .addFields(
+          { name: "Gateway Ping", value: `${client.ws.ping}ms`, inline: true },
+          { name: "Uptime", value: formatUptime(process.uptime()), inline: true },
+          { name: "Schedulers", value: `S:${autoStatusMinutes} U:${autoUpdatesMinutes} T:${autoTransmissionsMinutes} M:${autoModsMinutes} A:${autoActivityMinutes}`, inline: false }
+        )
+        .setColor(healthy ? 0x22c55e : 0xef4444)
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
 
@@ -295,16 +443,26 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "announce") {
+      if (!interaction.inGuild() || !interaction.guild) {
+        await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+        return;
+      }
+
       const member = await interaction.guild.members.fetch(interaction.user.id);
-      const allowed = hasRole(member, allowedRoleIds) || hasRole(member, ownerRoleIds);
+      const allowed = isAuthorizedMember(member, interaction.guild.ownerId);
       if (!allowed) {
         await interaction.reply({ content: "Unauthorized", ephemeral: true });
         return;
       }
 
+      if (!announceChannelId) {
+        await interaction.reply({ content: "ANNOUNCE_CHANNEL_ID is not configured.", ephemeral: true });
+        return;
+      }
+
       const message = interaction.options.getString("message", true);
       const everyone = interaction.options.getBoolean("everyone") || false;
-      const channel = await client.channels.fetch(announceChannelId);
+      const channel = await client.channels.fetch(announceChannelId).catch(() => null);
       if (!channel || !channel.isTextBased()) {
         await interaction.reply({ content: "Announcement channel not configured", ephemeral: true });
         return;
@@ -315,8 +473,13 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "reminder") {
+      if (!interaction.inGuild() || !interaction.guild) {
+        await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+        return;
+      }
+
       const member = await interaction.guild.members.fetch(interaction.user.id);
-      const allowed = hasRole(member, allowedRoleIds) || hasRole(member, ownerRoleIds);
+      const allowed = isAuthorizedMember(member, interaction.guild.ownerId);
       if (!allowed) {
         await interaction.reply({ content: "Unauthorized", ephemeral: true });
         return;
@@ -327,6 +490,10 @@ client.on("interactionCreate", async (interaction) => {
 
       if (sub === "add") {
         const minutes = interaction.options.getInteger("minutes", true);
+        if (minutes < 1 || minutes > 10080) {
+          await interaction.reply({ content: "Minutes must be between 1 and 10080.", ephemeral: true });
+          return;
+        }
         const message = interaction.options.getString("message", true);
         const due = Date.now() + minutes * 60000;
         const id = `rem-${Date.now()}`;
@@ -366,8 +533,13 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "activity") {
+      if (!interaction.inGuild() || !interaction.guild) {
+        await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+        return;
+      }
+
       const member = await interaction.guild.members.fetch(interaction.user.id);
-      const allowed = hasRole(member, allowedRoleIds) || hasRole(member, ownerRoleIds);
+      const allowed = isAuthorizedMember(member, interaction.guild.ownerId);
       if (!allowed) {
         await interaction.reply({ content: "Unauthorized", ephemeral: true });
         return;
@@ -556,11 +728,11 @@ function startSchedulers() {
   postModsChange().catch(() => {});
   postActivityLog().catch(() => {});
 
-  setInterval(() => postStatusUpdate().catch(() => {}), autoStatusMinutes * 60 * 1000);
-  setInterval(() => postLatestUpdate().catch(() => {}), autoUpdatesMinutes * 60 * 1000);
-  setInterval(() => postLatestTransmission().catch(() => {}), autoTransmissionsMinutes * 60 * 1000);
-  setInterval(() => postModsChange().catch(() => {}), autoModsMinutes * 60 * 1000);
-  setInterval(() => postActivityLog().catch(() => {}), autoActivityMinutes * 60 * 1000);
+  setInterval(() => postStatusUpdate().catch(() => {}), intervalMs(autoStatusMinutes));
+  setInterval(() => postLatestUpdate().catch(() => {}), intervalMs(autoUpdatesMinutes));
+  setInterval(() => postLatestTransmission().catch(() => {}), intervalMs(autoTransmissionsMinutes));
+  setInterval(() => postModsChange().catch(() => {}), intervalMs(autoModsMinutes));
+  setInterval(() => postActivityLog().catch(() => {}), intervalMs(autoActivityMinutes));
   setInterval(() => runReminders().catch(() => {}), 60 * 1000);
   setInterval(() => runDailyReminder().catch(() => {}), 60 * 1000);
 }

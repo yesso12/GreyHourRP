@@ -13,6 +13,7 @@ if (!token || !clientId || !guildId) {
 const commands = [
   new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
   new SlashCommandBuilder().setName("help").setDescription("Show bot commands"),
+  new SlashCommandBuilder().setName("health").setDescription("Run bot health checks (staff only)"),
   new SlashCommandBuilder().setName("links").setDescription("Show Grey Hour RP links"),
   new SlashCommandBuilder().setName("lore").setDescription("Show the Grey Hour lore primer"),
   new SlashCommandBuilder().setName("status").setDescription("Get live server status"),

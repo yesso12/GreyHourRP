@@ -7,7 +7,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "register": "node register-commands.js"
+    "register": "node register-commands.js",
+    "smoke": "bash scripts/smoke-check.sh"
   },
   "dependencies": {
     "discord.js": "^14.17.3",
