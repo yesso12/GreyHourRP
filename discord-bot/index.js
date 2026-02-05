@@ -44,6 +44,9 @@ const trustedRoleIds = (process.env.TRUSTED_ROLE_IDS || "").split(",").map((r) =
 const modCallCooldownSeconds = Number(process.env.MODCALL_COOLDOWN_SECONDS || 120);
 const modCallEscalateMinutes = Number(process.env.MODCALL_ESCALATE_MINUTES || 5);
 const modCallEscalateRepeatMinutes = Number(process.env.MODCALL_ESCALATE_REPEAT_MINUTES || 10);
+const modCallFirstResponseSlaMinutes = Number(process.env.MODCALL_FIRST_RESPONSE_SLA_MINUTES || 3);
+const modCallResolutionSlaMinutes = Number(process.env.MODCALL_RESOLUTION_SLA_MINUTES || 30);
+const modCallFollowupHours = Number(process.env.MODCALL_FOLLOWUP_HOURS || 24);
 const modCallDigestHourUtc = Number(process.env.MODCALL_DIGEST_HOUR_UTC || 13);
 const modCallDigestWeekdayUtc = Number(process.env.MODCALL_DIGEST_WEEKDAY_UTC || 1);
 const adminRequireSecondConfirmation = !/^(0|false|no)$/i.test(process.env.ADMIN_REQUIRE_SECOND_CONFIRMATION || "true");
@@ -106,6 +109,9 @@ function validateStartupConfig() {
   if (modCallCooldownSeconds < 1) errors.push("MODCALL_COOLDOWN_SECONDS must be >= 1.");
   if (modCallEscalateMinutes < 1) errors.push("MODCALL_ESCALATE_MINUTES must be >= 1.");
   if (modCallEscalateRepeatMinutes < 1) errors.push("MODCALL_ESCALATE_REPEAT_MINUTES must be >= 1.");
+  if (modCallFirstResponseSlaMinutes < 1) errors.push("MODCALL_FIRST_RESPONSE_SLA_MINUTES must be >= 1.");
+  if (modCallResolutionSlaMinutes < 1) errors.push("MODCALL_RESOLUTION_SLA_MINUTES must be >= 1.");
+  if (modCallFollowupHours < 1) errors.push("MODCALL_FOLLOWUP_HOURS must be >= 1.");
   if (modCallDigestHourUtc < 0 || modCallDigestHourUtc > 23) errors.push("MODCALL_DIGEST_HOUR_UTC must be 0-23.");
   if (modCallDigestWeekdayUtc < 0 || modCallDigestWeekdayUtc > 6) errors.push("MODCALL_DIGEST_WEEKDAY_UTC must be 0-6.");
 
@@ -203,6 +209,41 @@ const links = {
   updates: `${siteUrl}/updates`,
   transmissions: `${siteUrl}/transmissions`,
   mods: `${siteUrl}/mods`
+};
+
+const PLAYBOOKS = {
+  harassment: [
+    "Acknowledge report and separate involved users immediately.",
+    "Collect evidence: screenshots, message links, witness statements.",
+    "Issue proportionate action: warning, timeout, role restriction, or removal.",
+    "Log incident and notify reporter of outcome."
+  ],
+  cheating: [
+    "Secure evidence first: clips, logs, timestamps, and related reports.",
+    "Avoid public accusations while investigation is active.",
+    "Apply temporary controls if active harm is ongoing.",
+    "Document final decision with rationale and linked evidence."
+  ],
+  spam: [
+    "Apply slowmode and remove obvious spam payloads.",
+    "Quarantine repeat offenders with timeout or channel restrictions.",
+    "Escalate to lockdown if coordinated spam persists.",
+    "Post concise public status so members know action is in progress."
+  ],
+  raid: [
+    "Enable raid mode and alert on-shift moderators.",
+    "Suppress harmful links/mentions and lock impacted channels if needed.",
+    "Triage accounts by age, behavior, and coordinated patterns.",
+    "After stabilization, unwind temporary restrictions and post summary."
+  ]
+};
+
+const ANNOUNCE_PRESETS = {
+  restart: "Server restart scheduled soon. Please secure your character and prepare to reconnect.",
+  maintenance: "Maintenance is in progress. Some services may be unavailable temporarily.",
+  wipe: "World wipe schedule has been posted. Review the latest update for exact timing.",
+  incident: "Staff is actively handling an in-game incident. Please avoid speculation while we investigate.",
+  resolved: "The earlier incident has been resolved. Thank you for your patience."
 };
 
 function loadState() {
@@ -538,6 +579,47 @@ function isModOnShift(data, userId) {
   return Boolean(row && row.on === true);
 }
 
+function getOpenCaseLoadByModerator(data) {
+  const load = {};
+  for (const row of data.cases || []) {
+    if (row.status === "closed" || row.status === "cancelled") continue;
+    if (!row.claimedBy) continue;
+    load[row.claimedBy] = (load[row.claimedBy] || 0) + 1;
+  }
+  return load;
+}
+
+function pickLeastBusyModerator(data, candidateIds) {
+  if (!candidateIds.length) return "";
+  const load = getOpenCaseLoadByModerator(data);
+  return candidateIds
+    .slice()
+    .sort((a, b) => {
+      const da = load[a] || 0;
+      const db = load[b] || 0;
+      if (da !== db) return da - db;
+      return a.localeCompare(b);
+    })[0] || "";
+}
+
+function buildStaffStats(data, targetUserId = "") {
+  const rows = (data.cases || []).filter((x) => !targetUserId || x.claimedBy === targetUserId || x.closedBy === targetUserId);
+  const byMod = {};
+  for (const row of rows) {
+    const key = row.closedBy || row.claimedBy || "";
+    if (!key) continue;
+    if (!byMod[key]) {
+      byMod[key] = { assigned: 0, closed: 0, reopened: 0, responseMs: [], resolutionMs: [] };
+    }
+    if (row.claimedBy === key) byMod[key].assigned += 1;
+    if (row.closedBy === key) byMod[key].closed += 1;
+    if (Number.isFinite(row.firstResponseMs)) byMod[key].responseMs.push(row.firstResponseMs);
+    if (Number.isFinite(row.resolutionMs)) byMod[key].resolutionMs.push(row.resolutionMs);
+    if (ensureArray(row.history).some((h) => h.action === "reopened")) byMod[key].reopened += 1;
+  }
+  return byMod;
+}
+
 function nextEscalationAt(row) {
   const createdAt = new Date(row.createdAt || 0).getTime();
   if (!row.lastEscalatedAt) return createdAt + modCallEscalateMinutes * 60 * 1000;
@@ -650,6 +732,37 @@ function loadRoleSyncRules() {
       applyRoleIds: Array.isArray(r?.applyRoleIds) ? r.applyRoleIds.map((x) => String(x).trim()).filter(Boolean) : []
     }))
     .filter((r) => r.sourceRoleId && r.applyRoleIds.length);
+}
+
+function getKnowledgeRows() {
+  const rows = [
+    { topic: "rules", text: `Community rules and conduct policy: ${links.rules}` },
+    { topic: "join", text: `Join guide and onboarding steps: ${links.join}` },
+    { topic: "status", text: "Use /status and /statushistory for real-time and recent service state." },
+    { topic: "modcall", text: "Use /modcall create for intake, /modcall status for updates, /modcall export for evidence bundle." },
+    { topic: "rolesync", text: "Use /rolesync preview to inspect drift and /rolesync validate apply:true to repair mappings." },
+    { topic: "handoff", text: "Use /handoff include_cases:true to generate shift transition summaries." }
+  ];
+  for (const [topic, steps] of Object.entries(PLAYBOOKS)) {
+    rows.push({ topic: `playbook-${topic}`, text: `${topic} playbook: ${steps.join(" ")}` });
+  }
+  return rows;
+}
+
+function searchKnowledge(query, limit = 5) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return [];
+  const terms = q.split(/\s+/).filter(Boolean);
+  const rows = getKnowledgeRows().map((row) => {
+    const hay = `${row.topic} ${row.text}`.toLowerCase();
+    let score = 0;
+    for (const term of terms) {
+      if (hay.includes(term)) score += 1;
+    }
+    if (hay.includes(q)) score += 2;
+    return { ...row, score };
+  });
+  return rows.filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
 function buildRoleSyncPlan(member, rules) {
@@ -1424,6 +1537,53 @@ async function checkAdminApi() {
   }
 }
 
+function formatPermAuditMissing(missing) {
+  return missing.length ? missing.join(", ") : "none";
+}
+
+async function runPermissionAudit(guild) {
+  const botMember = await guild.members.fetch(client.user.id).catch(() => null);
+  if (!botMember) return [{ label: "Bot Member", ok: false, missing: ["Unable to load bot member"] }];
+
+  const channelChecks = [
+    { id: announceChannelId, label: "Announcement" },
+    { id: statusChannelId, label: "Status" },
+    { id: logChannelId, label: "Log" },
+    { id: modCallChannelId, label: "Modcall" },
+    { id: ticketChannelId, label: "Ticket" }
+  ].filter((x) => x.id);
+
+  const requiredChannelPerms = [
+    "ViewChannel",
+    "SendMessages",
+    "EmbedLinks",
+    "AttachFiles",
+    "ReadMessageHistory",
+    "ManageMessages",
+    "CreatePublicThreads",
+    "SendMessagesInThreads"
+  ];
+  const rows = [];
+
+  for (const check of channelChecks) {
+    const channel = await guild.channels.fetch(check.id).catch(() => null);
+    if (!channel || !channel.isTextBased()) {
+      rows.push({ label: `${check.label} #${check.id}`, ok: false, missing: ["Channel not found or not text"] });
+      continue;
+    }
+    const perms = channel.permissionsFor(botMember);
+    const missing = requiredChannelPerms.filter((p) => !perms?.has(PermissionsBitField.Flags[p]));
+    rows.push({ label: `${check.label} #${channel.name || channel.id}`, ok: missing.length === 0, missing });
+  }
+
+  const guildMissing = [];
+  if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) guildMissing.push("ManageRoles");
+  if (!botMember.permissions.has(PermissionsBitField.Flags.ModerateMembers)) guildMissing.push("ModerateMembers");
+  if (!botMember.permissions.has(PermissionsBitField.Flags.ManageChannels)) guildMissing.push("ManageChannels");
+  rows.unshift({ label: "Guild-wide Permissions", ok: guildMissing.length === 0, missing: guildMissing });
+  return rows;
+}
+
 async function runStartupDiagnostics() {
   console.log("[diag] Starting startup diagnostics...");
   console.log(`[diag] Deploy tag: ${deployTag} | mode=${dryRunMode ? "dry-run" : (stagingMode ? "staging" : "live")}`);
@@ -1475,11 +1635,11 @@ async function renderStaffList(interaction) {
     return;
   }
 
-  await interaction.deferReply();
+  await interaction.deferReply({ ephemeral: true });
   const guild = interaction.guild;
   await guild.members.fetch();
   await guild.roles.fetch();
-  const onlineOnly = interaction.options.getBoolean("online_only") || false;
+  const onlineOnly = interaction.isChatInputCommand() ? (interaction.options.getBoolean("online_only") || false) : true;
   const hasPresenceData = guild.members.cache.some((m) => Boolean(m.presence));
   if (onlineOnly && !hasPresenceData) {
     await interaction.editReply({
@@ -1691,6 +1851,51 @@ client.on("interactionCreate", async (interaction) => {
       const result = await toggleOptInRole(member, type);
       await interaction.reply({ content: result.message, ephemeral: true });
       return;
+    }
+
+    if (interaction.customId.startsWith("staffpanel:")) {
+      const isStaff = isStaffMember(interaction, member) && hasPolicyAccess(member, "ops");
+      if (!isStaff) {
+        await interaction.reply({ content: "Only staff can use this panel.", ephemeral: true });
+        return;
+      }
+      const action = interaction.customId.split(":")[1];
+      const data = loadModCallsState();
+      if (action === "staff") {
+        await renderStaffList(interaction);
+        return;
+      }
+      if (action === "coverage") {
+        const onShiftIds = Object.entries(data.shifts).filter(([, v]) => v?.on).map(([id]) => id);
+        const openCases = data.cases.filter((x) => x.status !== "closed" && x.status !== "cancelled").length;
+        await interaction.reply({ content: `On-shift: ${onShiftIds.length}\nOpen cases: ${openCases}`, ephemeral: true });
+        return;
+      }
+      if (action === "opsstatus") {
+        await interaction.reply({ content: summarizeMetrics(), ephemeral: true });
+        return;
+      }
+      if (action === "rolesync") {
+        await interaction.guild.members.fetch();
+        const rules = loadRoleSyncRules();
+        let drifted = 0;
+        for (const row of interaction.guild.members.cache.values()) {
+          if (row.user.bot) continue;
+          const plan = buildRoleSyncPlan(row, rules);
+          if (plan.toAdd.length || plan.toRemove.length) drifted += 1;
+        }
+        await interaction.reply({ content: `Role-sync quick check: ${drifted} member(s) drifted. Run \`/rolesync validate\` for details.`, ephemeral: true });
+        return;
+      }
+      if (action === "modqueue") {
+        const openRows = data.cases.filter((x) => x.status !== "closed" && x.status !== "cancelled").slice(0, 10);
+        if (!openRows.length) {
+          await interaction.reply({ content: "No open moderation cases.", ephemeral: true });
+          return;
+        }
+        await interaction.reply({ content: truncate(openRows.map(buildModCallSummaryRow).join("\n"), 1900), ephemeral: true });
+        return;
+      }
     }
 
     if (interaction.customId === "modcall:create") {
@@ -2018,7 +2223,8 @@ client.on("interactionCreate", async (interaction) => {
           "/rules, /join, /links, /lore, /moddiff",
           "/poll, /event, /ticket",
           "/purge, /slowmode, /lock, /unlock",
-          "/audit, /incident, /backup, /ops, /rolesync, /modcall, /mod, /admin",
+          "/audit, /incident, /backup, /ops, /rolesync, /case, /modcall, /mod, /admin",
+          "/staffpanel, /playbook, /handoff, /permissions, /staffstats, /announcepreset, /knowledge",
           "/health, /metrics, /announce, /reminder, /activity, /roll"
         ].join("\n"),
         ephemeral: true
@@ -3032,6 +3238,26 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: `Case \`${id}\` reopened.`, ephemeral: true });
         return;
       }
+
+      if (sub === "priority") {
+        const id = interaction.options.getString("id", true);
+        const level = interaction.options.getString("level", true);
+        const reason = interaction.options.getString("reason") || "Priority adjusted by staff.";
+        const row = data.cases.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: "Case not found.", ephemeral: true });
+          return;
+        }
+        row.priority = level;
+        addCaseHistoryRow(row, "priority", interaction.user.id, `${level}: ${truncate(reason, 400)}`);
+        saveModCallsState(data);
+        const thread = row.threadId ? await interaction.guild.channels.fetch(row.threadId).catch(() => null) : null;
+        if (thread && thread.isTextBased()) {
+          await sendMessageWithGuards(thread, { content: `📌 Priority updated to **${level}** by <@${interaction.user.id}>. Reason: ${truncate(reason, 400)}` }, "modcall.priority", reqId);
+        }
+        await interaction.reply({ content: `Case \`${id}\` priority set to ${level}.`, ephemeral: true });
+        return;
+      }
     }
 
     if (interaction.commandName === "mod") {
@@ -3333,6 +3559,38 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: `Incident resolved: ${id}`, ephemeral: true });
         return;
       }
+
+      if (sub === "link") {
+        const id = interaction.options.getString("id", true);
+        const caseId = interaction.options.getString("case_id", true);
+        const note = interaction.options.getString("note") || "";
+        const incident = incidents.find((x) => x.id === id);
+        if (!incident) {
+          await interaction.reply({ content: "Incident not found.", ephemeral: true });
+          return;
+        }
+        const data = loadModCallsState();
+        const modCase = data.cases.find((x) => x.id === caseId);
+        if (!modCase) {
+          await interaction.reply({ content: "Case not found.", ephemeral: true });
+          return;
+        }
+        incident.linkedCases = ensureArray(incident.linkedCases);
+        const exists = incident.linkedCases.some((x) => x.caseId === caseId);
+        if (!exists) {
+          incident.linkedCases.push({
+            caseId,
+            linkedAt: new Date().toISOString(),
+            linkedBy: interaction.user.id,
+            note: truncate(note, 400)
+          });
+          addCaseHistoryRow(modCase, "incident-linked", interaction.user.id, `Incident ${id}${note ? `: ${truncate(note, 200)}` : ""}`);
+          saveModCallsState(data);
+          saveIncidents(incidents);
+        }
+        await interaction.reply({ content: exists ? `Incident \`${id}\` is already linked to case \`${caseId}\`.` : `Linked incident \`${id}\` to case \`${caseId}\`.`, ephemeral: true });
+        return;
+      }
     }
 
     if (interaction.commandName === "backup") {
@@ -3523,8 +3781,8 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       const sub = interaction.options.getSubcommand();
-      if (sub === "validate") {
-        const apply = interaction.options.getBoolean("apply") || false;
+      if (sub === "preview" || sub === "validate") {
+        const apply = sub === "validate" ? (interaction.options.getBoolean("apply") || false) : false;
         const rules = loadRoleSyncRules();
         if (!rules.length) {
           await interaction.reply({ content: "No role-sync rules configured.", ephemeral: true });
@@ -3583,6 +3841,184 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.editReply({ content: truncate(lines.join("\n"), 1900) });
         return;
       }
+    }
+
+    if (interaction.commandName === "case") {
+      const staff = await requireStaff(interaction, "modcall");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      const data = loadModCallsState();
+
+      if (sub === "assign-next") {
+        const forcedId = interaction.options.getString("id") || "";
+        const target = forcedId
+          ? data.cases.find((x) => x.id === forcedId && x.status !== "closed" && x.status !== "cancelled")
+          : data.cases.find((x) => !x.claimedBy && x.status !== "closed" && x.status !== "cancelled");
+        if (!target) {
+          await interaction.reply({ content: forcedId ? `Open case not found: \`${forcedId}\`.` : "No unassigned open cases found.", ephemeral: true });
+          return;
+        }
+        if (!interaction.inGuild() || !interaction.guild) {
+          await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+          return;
+        }
+
+        const onShiftIds = Object.entries(data.shifts).filter(([, v]) => v?.on).map(([id]) => id);
+        const assignTo = pickLeastBusyModerator(data, onShiftIds);
+        if (!assignTo) {
+          await interaction.reply({ content: "No on-shift moderators are available for assignment.", ephemeral: true });
+          return;
+        }
+        target.claimedBy = assignTo;
+        target.claimedAt = target.claimedAt || new Date().toISOString();
+        target.status = "claimed";
+        if (!Number.isFinite(target.firstResponseMs)) {
+          target.firstResponseMs = Math.max(0, Date.now() - new Date(target.createdAt || Date.now()).getTime());
+        }
+        addCaseHistoryRow(target, "auto-assigned", interaction.user.id, `Assigned to ${assignTo} via /case assign-next`);
+        data.stats.claimed += 1;
+        saveModCallsState(data);
+
+        const thread = target.threadId ? await interaction.guild.channels.fetch(target.threadId).catch(() => null) : null;
+        if (thread && thread.isTextBased()) {
+          await sendMessageWithGuards(thread, { content: `🧭 Auto-assigned to <@${assignTo}> by <@${interaction.user.id}>.` }, "case.assign-next", reqId);
+        }
+        await notifyReporterUpdate(interaction.client, target, `Your case is now assigned to <@${assignTo}>.`);
+        await interaction.reply({ content: `Case \`${target.id}\` assigned to <@${assignTo}>.`, ephemeral: true });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "staffpanel") {
+      const staff = await requireStaff(interaction, "ops");
+      if (!staff) return;
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("staffpanel:staff").setLabel("Staff List").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId("staffpanel:coverage").setLabel("Coverage").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId("staffpanel:opsstatus").setLabel("Ops Status").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId("staffpanel:rolesync").setLabel("RoleSync Check").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId("staffpanel:modqueue").setLabel("Mod Queue").setStyle(ButtonStyle.Danger)
+      );
+      await interaction.reply({
+        content: "Staff panel ready. Use the buttons below for common moderation actions.",
+        components: [row],
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (interaction.commandName === "playbook") {
+      const staff = await requireStaff(interaction, "modcall");
+      if (!staff) return;
+      const topic = interaction.options.getString("topic", true);
+      const steps = PLAYBOOKS[topic] || [];
+      if (!steps.length) {
+        await interaction.reply({ content: "Playbook topic not found.", ephemeral: true });
+        return;
+      }
+      const lines = [`**${topic.toUpperCase()} Playbook**`, ...steps.map((s, i) => `${i + 1}. ${s}`)];
+      await interaction.reply({ content: lines.join("\n"), ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "handoff") {
+      const staff = await requireStaff(interaction, "mod");
+      if (!staff) return;
+      const includeCases = interaction.options.getBoolean("include_cases") || false;
+      const data = loadModCallsState();
+      const openRows = data.cases.filter((x) => x.status !== "closed" && x.status !== "cancelled");
+      const unclaimed = openRows.filter((x) => !x.claimedBy);
+      const pendingApprovals = loadPendingAdminApprovals().filter((x) => x.status === "pending").length;
+      const onShiftIds = Object.entries(data.shifts).filter(([, v]) => v?.on).map(([id]) => id);
+      const lines = [
+        "Shift Handoff Summary",
+        `On-shift moderators: ${onShiftIds.length ? onShiftIds.map((x) => `<@${x}>`).join(", ") : "none"}`,
+        `Open cases: ${openRows.length}`,
+        `Unclaimed cases: ${unclaimed.length}`,
+        `Escalations total: ${data.stats.escalated || 0}`,
+        `Pending admin approvals: ${pendingApprovals}`
+      ];
+      if (includeCases && openRows.length) {
+        lines.push("Open case queue:");
+        lines.push(openRows.slice(0, 12).map(buildModCallSummaryRow).join("\n"));
+      }
+      await interaction.reply({ content: truncate(lines.join("\n"), 1900), ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "permissions") {
+      const staff = await requireStaff(interaction, "ops");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      if (sub === "audit") {
+        await interaction.deferReply({ ephemeral: true });
+        const rows = await runPermissionAudit(interaction.guild);
+        const text = rows.map((x) => `${x.ok ? "✅" : "❌"} ${x.label}: ${formatPermAuditMissing(x.missing)}`).join("\n");
+        await interaction.editReply({ content: truncate(text, 1900) });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "staffstats") {
+      const staff = await requireStaff(interaction, "mod");
+      if (!staff) return;
+      const target = interaction.options.getUser("user");
+      const data = loadModCallsState();
+      const stats = buildStaffStats(data, target?.id || "");
+      const mean = (arr) => arr.length ? Math.floor(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+      if (target) {
+        const row = stats[target.id] || { assigned: 0, closed: 0, reopened: 0, responseMs: [], resolutionMs: [] };
+        await interaction.reply({
+          content: [
+            `Staff Stats: <@${target.id}>`,
+            `Assigned: ${row.assigned}`,
+            `Closed: ${row.closed}`,
+            `Reopened involved: ${row.reopened}`,
+            `Avg first response: ${Math.floor(mean(row.responseMs) / 1000)}s`,
+            `Avg resolution: ${Math.floor(mean(row.resolutionMs) / 60000)}m`
+          ].join("\n"),
+          ephemeral: true
+        });
+        return;
+      }
+      const leaderboard = Object.entries(stats)
+        .sort((a, b) => (b[1].closed || 0) - (a[1].closed || 0))
+        .slice(0, 10)
+        .map(([id, row]) => `<@${id}> closed:${row.closed} assigned:${row.assigned} avgResp:${Math.floor(mean(row.responseMs) / 1000)}s`);
+      await interaction.reply({ content: leaderboard.length ? leaderboard.join("\n") : "No staff moderation stats available yet.", ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "announcepreset") {
+      const staff = await requireStaff(interaction, "announce");
+      if (!staff) return;
+      const preset = interaction.options.getString("preset", true);
+      const note = interaction.options.getString("note") || "";
+      const everyone = interaction.options.getBoolean("everyone") || false;
+      const base = ANNOUNCE_PRESETS[preset] || "Staff announcement.";
+      const content = `${everyone ? "@everyone\n" : ""}${base}${note ? `\n${truncate(note, 500)}` : ""}`;
+      const channel = await client.channels.fetch(announceChannelId).catch(() => null);
+      if (!channel || !channel.isTextBased()) {
+        await interaction.reply({ content: "Announcement channel not configured.", ephemeral: true });
+        return;
+      }
+      const sent = await sendMessageWithGuards(channel, { content }, "announcepreset.send", reqId);
+      await interaction.reply({ content: sent ? `Preset announcement sent: ${preset}.` : "Announcement suppressed due to staging/dry-run mode.", ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "knowledge") {
+      const staff = await requireStaff(interaction, "modcall");
+      if (!staff) return;
+      const query = interaction.options.getString("query", true);
+      const hits = searchKnowledge(query, 6);
+      if (!hits.length) {
+        await interaction.reply({ content: `No knowledge hits for: ${query}`, ephemeral: true });
+        return;
+      }
+      const lines = hits.map((h, i) => `${i + 1}. [${h.topic}] ${truncate(h.text, 220)}`);
+      await interaction.reply({ content: truncate(lines.join("\n"), 1900), ephemeral: true });
+      return;
     }
 
     if (interaction.commandName === "health") {
@@ -3916,14 +4352,22 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      const message = interaction.options.getString("message", true);
+      const message = interaction.options.getString("message") || "";
+      const preset = interaction.options.getString("preset") || "";
+      const note = interaction.options.getString("note") || "";
       const everyone = interaction.options.getBoolean("everyone") || false;
+      const presetMessage = preset ? (ANNOUNCE_PRESETS[preset] || "") : "";
+      const body = [message || presetMessage, note].filter(Boolean).join("\n");
+      if (!body) {
+        await interaction.reply({ content: "Provide `message` or `preset`.", ephemeral: true });
+        return;
+      }
       const channel = await client.channels.fetch(announceChannelId).catch(() => null);
       if (!channel || !channel.isTextBased()) {
         await interaction.reply({ content: "Announcement channel not configured", ephemeral: true });
         return;
       }
-      const sent = await sendMessageWithGuards(channel, { content: everyone ? `@everyone\n${message}` : message }, "announce.send", reqId);
+      const sent = await sendMessageWithGuards(channel, { content: everyone ? `@everyone\n${body}` : body }, "announce.send", reqId);
       await interaction.reply({ content: sent ? "Announcement sent." : "Announcement suppressed due to staging/dry-run mode.", ephemeral: true });
       return;
     }
@@ -4420,13 +4864,45 @@ async function runModCallEscalations() {
   const data = loadModCallsState();
   const now = Date.now();
   const openRows = data.cases.filter((x) => x.status !== "closed" && x.status !== "cancelled");
-  if (!openRows.length) return;
+  const closedRows = data.cases.filter((x) => x.status === "closed");
+  if (!openRows.length && !closedRows.length) return;
 
   const onShiftMentions = Object.entries(data.shifts || {})
     .filter(([, row]) => row?.on)
     .map(([id]) => `<@${id}>`);
 
   for (const row of openRows) {
+    const createdAtMs = new Date(row.createdAt || 0).getTime();
+    if (Number.isFinite(createdAtMs) && !row.claimedBy) {
+      const firstResponseDue = createdAtMs + modCallFirstResponseSlaMinutes * 60 * 1000;
+      if (now >= firstResponseDue && !row.firstResponseReminderAt) {
+        row.firstResponseReminderAt = new Date().toISOString();
+        addCaseHistoryRow(row, "sla-first-response", "", `First response SLA exceeded (${modCallFirstResponseSlaMinutes}m)`);
+        if (row.threadId) {
+          const thread = await client.channels.fetch(row.threadId).catch(() => null);
+          if (thread && thread.isTextBased()) {
+            await sendMessageWithGuards(thread, { content: `⏰ First response SLA exceeded (${modCallFirstResponseSlaMinutes}m). ${onShiftMentions.join(" ") || (modCallRoleId ? `<@&${modCallRoleId}>` : "Moderators")}` }, "modcall.sla.first-response");
+          }
+        }
+      }
+    }
+    if (row.claimedBy && Number.isFinite(createdAtMs) && row.status !== "closed") {
+      const resolutionDue = createdAtMs + modCallResolutionSlaMinutes * 60 * 1000;
+      if (now >= resolutionDue) {
+        const last = row.resolutionReminderAt ? new Date(row.resolutionReminderAt).getTime() : 0;
+        if (!last || now - last >= modCallEscalateRepeatMinutes * 60 * 1000) {
+          row.resolutionReminderAt = new Date().toISOString();
+          addCaseHistoryRow(row, "sla-resolution", "", `Resolution SLA exceeded (${modCallResolutionSlaMinutes}m)`);
+          if (row.threadId) {
+            const thread = await client.channels.fetch(row.threadId).catch(() => null);
+            if (thread && thread.isTextBased()) {
+              await sendMessageWithGuards(thread, { content: `⏳ Resolution SLA exceeded (${modCallResolutionSlaMinutes}m). Claimed by <@${row.claimedBy}>.` }, "modcall.sla.resolution");
+            }
+          }
+        }
+      }
+    }
+
     if (row.claimedBy) continue;
     const nextAt = nextEscalationAt(row);
     if (now < nextAt) continue;
@@ -4449,6 +4925,17 @@ async function runModCallEscalations() {
     }
     await sendOpsAlert("modcall-escalation", `Case ${row.id} escalated (${row.escalationCount}).`);
     await notifyReporterUpdate(client, row, "Your case has been escalated for faster moderator response.");
+  }
+
+  for (const row of closedRows) {
+    if (!row.reporterId || !row.closedAt) continue;
+    if (row.followupSentAt) continue;
+    const closedAtMs = new Date(row.closedAt).getTime();
+    if (!Number.isFinite(closedAtMs)) continue;
+    const dueMs = closedAtMs + modCallFollowupHours * 60 * 60 * 1000;
+    if (now < dueMs) continue;
+    row.followupSentAt = new Date().toISOString();
+    await notifyReporterUpdate(client, row, "Checking in after your recent case closure. Reply if the issue has resumed and staff can reopen.");
   }
 
   saveModCallsState(data);

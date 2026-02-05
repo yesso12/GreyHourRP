@@ -88,6 +88,11 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub
+        .setName("preview")
+        .setDescription("Preview role-sync drift without changes")
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName("validate")
         .setDescription("Check role-sync drift and optionally apply fixes")
         .addBooleanOption((opt) =>
@@ -198,7 +203,92 @@ const commands = [
         .setDescription("Reopen a previously closed case")
         .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
         .addStringOption((opt) => opt.setName("reason").setDescription("Reason for reopening").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("priority")
+        .setDescription("Adjust case priority")
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
+        .addStringOption((opt) =>
+          opt.setName("level")
+            .setDescription("Priority level")
+            .setRequired(true)
+            .addChoices(
+              { name: "low", value: "low" },
+              { name: "normal", value: "normal" },
+              { name: "high", value: "high" },
+              { name: "critical", value: "critical" }
+            )
+        )
+        .addStringOption((opt) => opt.setName("reason").setDescription("Reason for change").setRequired(false))
     ),
+  new SlashCommandBuilder()
+    .setName("case")
+    .setDescription("Case routing helpers")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub
+        .setName("assign-next")
+        .setDescription("Assign an open case to the least-busy on-shift moderator")
+        .addStringOption((opt) => opt.setName("id").setDescription("Specific case id (optional)").setRequired(false))
+    ),
+  new SlashCommandBuilder()
+    .setName("staffpanel")
+    .setDescription("Post a one-click staff control panel")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+  new SlashCommandBuilder()
+    .setName("playbook")
+    .setDescription("Show moderator response playbooks")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addStringOption((opt) =>
+      opt.setName("topic")
+        .setDescription("Playbook topic")
+        .setRequired(true)
+        .addChoices(
+          { name: "harassment", value: "harassment" },
+          { name: "cheating", value: "cheating" },
+          { name: "spam", value: "spam" },
+          { name: "raid", value: "raid" }
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("handoff")
+    .setDescription("Generate shift handoff summary")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addBooleanOption((opt) => opt.setName("include_cases").setDescription("Include case list details").setRequired(false)),
+  new SlashCommandBuilder()
+    .setName("permissions")
+    .setDescription("Audit bot permissions in key channels")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) => sub.setName("audit").setDescription("Check for missing permissions")),
+  new SlashCommandBuilder()
+    .setName("staffstats")
+    .setDescription("Show moderator performance metrics")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addUserOption((opt) => opt.setName("user").setDescription("Specific staff member").setRequired(false)),
+  new SlashCommandBuilder()
+    .setName("announcepreset")
+    .setDescription("Send a preset staff announcement")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addStringOption((opt) =>
+      opt.setName("preset")
+        .setDescription("Preset template")
+        .setRequired(true)
+        .addChoices(
+          { name: "restart", value: "restart" },
+          { name: "maintenance", value: "maintenance" },
+          { name: "wipe", value: "wipe" },
+          { name: "incident", value: "incident" },
+          { name: "resolved", value: "resolved" }
+        )
+    )
+    .addStringOption((opt) => opt.setName("note").setDescription("Optional extra details").setRequired(false))
+    .addBooleanOption((opt) => opt.setName("everyone").setDescription("Mention @everyone").setRequired(false)),
+  new SlashCommandBuilder()
+    .setName("knowledge")
+    .setDescription("Search staff knowledge base (rules, playbooks, FAQ)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addStringOption((opt) => opt.setName("query").setDescription("Search query").setRequired(true)),
   new SlashCommandBuilder()
     .setName("mod")
     .setDescription("Moderator shift and analytics")
@@ -310,7 +400,22 @@ const commands = [
     .setName("announce")
     .setDescription("Send announcement to Discord")
     .addStringOption((opt) =>
-      opt.setName("message").setDescription("Announcement text").setRequired(true)
+      opt.setName("message").setDescription("Announcement text").setRequired(false)
+    )
+    .addStringOption((opt) =>
+      opt.setName("preset")
+        .setDescription("Optional preset template")
+        .setRequired(false)
+        .addChoices(
+          { name: "restart", value: "restart" },
+          { name: "maintenance", value: "maintenance" },
+          { name: "wipe", value: "wipe" },
+          { name: "incident", value: "incident" },
+          { name: "resolved", value: "resolved" }
+        )
+    )
+    .addStringOption((opt) =>
+      opt.setName("note").setDescription("Extra details appended to preset").setRequired(false)
     )
     .addBooleanOption((opt) =>
       opt.setName("everyone").setDescription("Mention @everyone").setRequired(false)
@@ -700,6 +805,13 @@ const commands = [
         .setDescription("Resolve incident by id (staff)")
         .addStringOption((opt) => opt.setName("id").setDescription("Incident id").setRequired(true))
         .addStringOption((opt) => opt.setName("note").setDescription("Resolution note").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("link")
+        .setDescription("Link incident to a mod case")
+        .addStringOption((opt) => opt.setName("id").setDescription("Incident id").setRequired(true))
+        .addStringOption((opt) => opt.setName("case_id").setDescription("Case id").setRequired(true))
+        .addStringOption((opt) => opt.setName("note").setDescription("Optional link note").setRequired(false))
     ),
   new SlashCommandBuilder()
     .setName("backup")

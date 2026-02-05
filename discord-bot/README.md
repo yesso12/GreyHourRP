@@ -156,14 +156,21 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/help`
 - `/health`
 - `/ops status|maintenance|inventory|safemode`
-- `/rolesync validate`
-- `/modcall setup|create|list|claim|transfer|close|status|evidence|flag|template|export|reopen`
+- `/rolesync preview|validate`
+- `/case assign-next`
+- `/staffpanel`
+- `/playbook topic`
+- `/handoff include_cases`
+- `/permissions audit`
+- `/staffstats user`
+- `/knowledge query`
+- `/modcall setup|create|list|claim|transfer|close|status|evidence|flag|template|export|reopen|priority`
 - `/mod shift|coverage|metrics`
 - `/admin purge|lockdown|unlockdown|rolegrant|rolerevoke|snapshot|rollback|health|doctor`
 - `/metrics`
 - `/audit list`
 - `/audit export`
-- `/incident create|list|resolve`
+- `/incident create|list|resolve|link`
 - `/backup create|list|restore` (`dry_run` supported on restore)
 - `/lfg create|list|close`
 - `/faction create|recruit|roster|disband`
@@ -195,7 +202,8 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/moddiff`
 - `/rules`
 - `/join`
-- `/announce message everyone`
+- `/announce message|preset note everyone`
+- `/announcepreset preset note everyone`
 - `/poll question`
 - `/event create|list|announce|end`
 - `/ticket create|close`
