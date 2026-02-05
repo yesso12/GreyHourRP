@@ -51,6 +51,7 @@ const raidModeMaxMentions = Number(process.env.RAID_MODE_MAX_MENTIONS || 5);
 const raidModeMinAccountDays = Number(process.env.RAID_MODE_MIN_ACCOUNT_DAYS || 7);
 const allowedRoleIds = (process.env.ALLOWED_ROLE_IDS || "").split(",").map(r => r.trim()).filter(Boolean);
 const ownerRoleIds = (process.env.OWNER_ROLE_IDS || "").split(",").map(r => r.trim()).filter(Boolean);
+const ownerUserIds = (process.env.OWNER_USER_IDS || "").split(",").map(r => r.trim()).filter(Boolean);
 const autoStatusMinutes = parsePositiveMinutes(process.env.AUTO_STATUS_MINUTES, 10, "AUTO_STATUS_MINUTES");
 const autoActivityMinutes = parsePositiveMinutes(process.env.AUTO_ACTIVITY_MINUTES, 10, "AUTO_ACTIVITY_MINUTES");
 const autoUpdatesMinutes = parsePositiveMinutes(process.env.AUTO_UPDATES_MINUTES, 30, "AUTO_UPDATES_MINUTES");
@@ -1399,26 +1400,27 @@ async function renderStaffList(interaction) {
     return;
   }
 
+  await interaction.deferReply();
   const guild = interaction.guild;
   await guild.members.fetch();
   await guild.roles.fetch();
   const onlineOnly = interaction.options.getBoolean("online_only") || false;
   const hasPresenceData = guild.members.cache.some((m) => Boolean(m.presence));
   if (onlineOnly && !hasPresenceData) {
-    await interaction.reply({
-      content: "Online filtering requires member presence data. Enable Presence Intent for the bot, then try again.",
-      ephemeral: true
+    await interaction.editReply({
+      content: "Online filtering requires member presence data. Enable Presence Intent for the bot, then try again."
     });
     return;
   }
   const isOnline = (m) => !onlineOnly || (m.presence && m.presence.status !== "offline");
 
-  const ownerIds = new Set([guild.ownerId, ...ownerRoleIds]);
+  const ownerRoleIdSet = new Set(ownerRoleIds);
+  const ownerUserIdSet = new Set([guild.ownerId, ...ownerUserIds]);
   const adminIds = new Set(allowedRoleIds);
   const modIds = new Set([modCallRoleId, seniorModRoleId].filter(Boolean));
 
   const ownerMembers = guild.members.cache
-    .filter((m) => (m.id === guild.ownerId || m.roles.cache.some((r) => ownerIds.has(r.id))) && isOnline(m))
+    .filter((m) => (ownerUserIdSet.has(m.id) || m.roles.cache.some((r) => ownerRoleIdSet.has(r.id))) && isOnline(m))
     .map((m) => `<@${m.id}>`)
     .slice(0, 30);
 
@@ -1445,7 +1447,7 @@ async function renderStaffList(interaction) {
     .setColor(0x2563eb)
     .setTimestamp();
 
-  await interaction.reply({ embeds: [embed] });
+  await interaction.editReply({ embeds: [embed] });
 }
 
 async function requireStaff(interaction, commandName = interaction.commandName || "") {
@@ -3213,6 +3215,7 @@ client.on("interactionCreate", async (interaction) => {
           await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
           return;
         }
+        await interaction.deferReply({ ephemeral: true });
         const mode = interaction.options.getString("mode") || "summary";
         await interaction.guild.members.fetch();
         await interaction.guild.roles.fetch();
@@ -3221,9 +3224,8 @@ client.on("interactionCreate", async (interaction) => {
 
         if (mode === "export") {
           const name = `guild-inventory-${interaction.guild.id}-${new Date().toISOString().slice(0, 10)}.json`;
-          await interaction.reply({
+          await interaction.editReply({
             content: `Exported inventory for ${interaction.guild.name}.`,
-            ephemeral: true,
             files: [{ attachment: Buffer.from(JSON.stringify(inv, null, 2), "utf-8"), name }]
           });
           return;
@@ -3236,7 +3238,7 @@ client.on("interactionCreate", async (interaction) => {
           `Channels: ${inv.channels.length}`,
           `Top roles: ${inv.roles.slice(0, 8).map((r) => r.name).join(", ") || "none"}`
         ].join("\n");
-        await interaction.reply({ content: summary, ephemeral: true });
+        await interaction.editReply({ content: summary });
         return;
       }
     }
