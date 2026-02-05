@@ -13,7 +13,19 @@ if (!token || !clientId || !guildId) {
 const commands = [
   new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
   new SlashCommandBuilder().setName("help").setDescription("Show bot commands"),
-  new SlashCommandBuilder().setName("health").setDescription("Run bot health checks (staff only)"),
+  new SlashCommandBuilder()
+    .setName("health")
+    .setDescription("Run bot health checks (staff only)")
+    .addBooleanOption((opt) =>
+      opt.setName("details").setDescription("Include extended diagnostics").setRequired(false)
+    ),
+  new SlashCommandBuilder().setName("metrics").setDescription("Show bot runtime metrics (staff only)"),
+  new SlashCommandBuilder().setName("whois").setDescription("Show member profile")
+    .addUserOption((opt) =>
+      opt.setName("user").setDescription("Target user").setRequired(false)
+    ),
+  new SlashCommandBuilder().setName("playercount").setDescription("Show live player count"),
+  new SlashCommandBuilder().setName("serverip").setDescription("Show server connection details"),
   new SlashCommandBuilder().setName("links").setDescription("Show Grey Hour RP links"),
   new SlashCommandBuilder().setName("lore").setDescription("Show the Grey Hour lore primer"),
   new SlashCommandBuilder().setName("status").setDescription("Get live server status"),
@@ -70,7 +82,356 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName("activity")
-    .setDescription("Show recent admin activity (staff only)")
+    .setDescription("Show recent admin activity (staff only)"),
+  new SlashCommandBuilder()
+    .setName("poll")
+    .setDescription("Create a quick reaction poll (staff only)")
+    .addStringOption((opt) =>
+      opt.setName("question").setDescription("Poll question").setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("event")
+    .setDescription("Manage community events (staff only)")
+    .addSubcommand((sub) =>
+      sub
+        .setName("create")
+        .setDescription("Create an event")
+        .addStringOption((opt) => opt.setName("title").setDescription("Event title").setRequired(true))
+        .addStringOption((opt) => opt.setName("time").setDescription("When it starts").setRequired(true))
+        .addStringOption((opt) => opt.setName("details").setDescription("Extra details").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("list")
+        .setDescription("List active events")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("announce")
+        .setDescription("Announce an event by id")
+        .addStringOption((opt) => opt.setName("id").setDescription("Event id").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("end")
+        .setDescription("Mark an event completed")
+        .addStringOption((opt) => opt.setName("id").setDescription("Event id").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("ticket")
+    .setDescription("Open or close support tickets")
+    .addSubcommand((sub) =>
+      sub
+        .setName("create")
+        .setDescription("Create a support ticket thread")
+        .addStringOption((opt) => opt.setName("subject").setDescription("Short subject").setRequired(true))
+        .addStringOption((opt) => opt.setName("details").setDescription("Ticket details").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("close")
+        .setDescription("Close the current ticket thread")
+    ),
+  new SlashCommandBuilder()
+    .setName("moddiff")
+    .setDescription("Show modpack changes since last snapshot"),
+  new SlashCommandBuilder()
+    .setName("purge")
+    .setDescription("Delete recent messages in this channel (staff only)")
+    .addIntegerOption((opt) =>
+      opt.setName("amount").setDescription("Messages to delete (1-100)").setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("slowmode")
+    .setDescription("Set channel slowmode seconds (staff only)")
+    .addIntegerOption((opt) =>
+      opt.setName("seconds").setDescription("0 to disable, max 21600").setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("lock")
+    .setDescription("Lock current channel for @everyone (staff only)"),
+  new SlashCommandBuilder()
+    .setName("unlock")
+    .setDescription("Unlock current channel for @everyone (staff only)"),
+  new SlashCommandBuilder()
+    .setName("lfg")
+    .setDescription("Looking-for-group tools")
+    .addSubcommand((sub) =>
+      sub.setName("create")
+        .setDescription("Create an LFG post")
+        .addStringOption((opt) => opt.setName("playstyle").setDescription("PvE, PvP, RP, casual...").setRequired(true))
+        .addStringOption((opt) => opt.setName("map").setDescription("Map / region").setRequired(true))
+        .addStringOption((opt) => opt.setName("details").setDescription("Extra details").setRequired(false))
+    )
+    .addSubcommand((sub) => sub.setName("list").setDescription("List active LFG posts"))
+    .addSubcommand((sub) =>
+      sub.setName("close")
+        .setDescription("Close one of your LFG posts")
+        .addStringOption((opt) => opt.setName("id").setDescription("LFG id").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("faction")
+    .setDescription("Faction and clan tools")
+    .addSubcommand((sub) =>
+      sub.setName("create")
+        .setDescription("Create a faction")
+        .addStringOption((opt) => opt.setName("name").setDescription("Faction name").setRequired(true))
+        .addStringOption((opt) => opt.setName("tag").setDescription("Short faction tag").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("recruit")
+        .setDescription("Invite a member to your faction")
+        .addStringOption((opt) => opt.setName("faction").setDescription("Faction name").setRequired(true))
+        .addUserOption((opt) => opt.setName("user").setDescription("Member to recruit").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("roster")
+        .setDescription("Show faction roster")
+        .addStringOption((opt) => opt.setName("faction").setDescription("Faction name").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("disband")
+        .setDescription("Disband your faction")
+        .addStringOption((opt) => opt.setName("faction").setDescription("Faction name").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("trade")
+    .setDescription("Loot and trade board")
+    .addSubcommand((sub) =>
+      sub.setName("post")
+        .setDescription("Create a trade listing")
+        .addStringOption((opt) => opt.setName("type").setDescription("WTS, WTB, WTT").setRequired(true))
+        .addStringOption((opt) => opt.setName("item").setDescription("Item or bundle").setRequired(true))
+        .addStringOption((opt) => opt.setName("details").setDescription("Details / price").setRequired(false))
+    )
+    .addSubcommand((sub) => sub.setName("list").setDescription("List active trade posts"))
+    .addSubcommand((sub) =>
+      sub.setName("close")
+        .setDescription("Close your trade listing")
+        .addStringOption((opt) => opt.setName("id").setDescription("Trade id").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("contest")
+    .setDescription("Community contests")
+    .addSubcommand((sub) =>
+      sub.setName("start")
+        .setDescription("Start a contest")
+        .addStringOption((opt) => opt.setName("title").setDescription("Contest title").setRequired(true))
+        .addStringOption((opt) => opt.setName("theme").setDescription("Contest theme").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("vote")
+        .setDescription("Vote in a contest")
+        .addStringOption((opt) => opt.setName("id").setDescription("Contest id").setRequired(true))
+        .addUserOption((opt) => opt.setName("user").setDescription("Entry owner").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("end")
+        .setDescription("End a contest")
+        .addStringOption((opt) => opt.setName("id").setDescription("Contest id").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("pz")
+    .setDescription("Project Zomboid quick knowledge")
+    .addSubcommand((sub) =>
+      sub.setName("trait")
+        .setDescription("Trait tip")
+        .addStringOption((opt) => opt.setName("name").setDescription("Trait name").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("recipe")
+        .setDescription("Crafting recipe tip")
+        .addStringOption((opt) => opt.setName("name").setDescription("Recipe name").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("infection")
+        .setDescription("Infection / wound guidance")
+        .addStringOption((opt) => opt.setName("topic").setDescription("Topic").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("skill")
+        .setDescription("Skill leveling tip")
+        .addStringOption((opt) => opt.setName("name").setDescription("Skill name").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("mapmark")
+    .setDescription("Map marker tools")
+    .addSubcommand((sub) =>
+      sub.setName("add")
+        .setDescription("Add a community map marker")
+        .addStringOption((opt) => opt.setName("label").setDescription("Marker label").setRequired(true))
+        .addStringOption((opt) => opt.setName("location").setDescription("Grid or location").setRequired(true))
+        .addStringOption((opt) => opt.setName("notes").setDescription("Extra notes").setRequired(false))
+    )
+    .addSubcommand((sub) => sub.setName("list").setDescription("List map markers"))
+    .addSubcommand((sub) =>
+      sub.setName("remove")
+        .setDescription("Remove your marker")
+        .addStringOption((opt) => opt.setName("id").setDescription("Marker id").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("safehouse")
+    .setDescription("Safehouse request workflow")
+    .addSubcommand((sub) =>
+      sub.setName("request")
+        .setDescription("Request safehouse approval")
+        .addStringOption((opt) => opt.setName("location").setDescription("Safehouse location").setRequired(true))
+        .addStringOption((opt) => opt.setName("details").setDescription("Claim details").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("review")
+        .setDescription("Approve/deny a request (staff)")
+        .addStringOption((opt) => opt.setName("id").setDescription("Request id").setRequired(true))
+        .addStringOption((opt) => opt.setName("decision").setDescription("approve or deny").setRequired(true))
+    )
+    .addSubcommand((sub) => sub.setName("list").setDescription("List safehouse requests")),
+  new SlashCommandBuilder()
+    .setName("raid")
+    .setDescription("Raid/event scheduler")
+    .addSubcommand((sub) =>
+      sub.setName("create")
+        .setDescription("Create a raid event")
+        .addStringOption((opt) => opt.setName("title").setDescription("Raid title").setRequired(true))
+        .addStringOption((opt) => opt.setName("time").setDescription("Raid time").setRequired(true))
+        .addStringOption((opt) => opt.setName("details").setDescription("Raid details").setRequired(false))
+    )
+    .addSubcommand((sub) => sub.setName("list").setDescription("List active raids"))
+    .addSubcommand((sub) =>
+      sub.setName("end")
+        .setDescription("End a raid")
+        .addStringOption((opt) => opt.setName("id").setDescription("Raid id").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("signup")
+    .setDescription("Join/leave event or raid signups")
+    .addSubcommand((sub) =>
+      sub.setName("join")
+        .setDescription("Join by event/raid id")
+        .addStringOption((opt) => opt.setName("id").setDescription("Event or raid id").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("leave")
+        .setDescription("Leave by id")
+        .addStringOption((opt) => opt.setName("id").setDescription("Event or raid id").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("list")
+        .setDescription("List signups for id")
+        .addStringOption((opt) => opt.setName("id").setDescription("Event or raid id").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("commend")
+    .setDescription("Commend a helpful survivor")
+    .addUserOption((opt) => opt.setName("user").setDescription("Who to commend").setRequired(true))
+    .addStringOption((opt) => opt.setName("reason").setDescription("Why").setRequired(false)),
+  new SlashCommandBuilder()
+    .setName("leaderboard")
+    .setDescription("Top commended survivors"),
+  new SlashCommandBuilder()
+    .setName("squadvc")
+    .setDescription("Temporary squad voice channels")
+    .addSubcommand((sub) =>
+      sub.setName("create")
+        .setDescription("Create a temporary squad VC")
+        .addStringOption((opt) => opt.setName("name").setDescription("Channel name").setRequired(true))
+        .addIntegerOption((opt) => opt.setName("limit").setDescription("User limit").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("close")
+        .setDescription("Close your squad VC")
+    ),
+  new SlashCommandBuilder()
+    .setName("optin")
+    .setDescription("Toggle alert roles")
+    .addStringOption((opt) =>
+      opt.setName("type")
+        .setDescription("Alert type")
+        .setRequired(true)
+        .addChoices(
+          { name: "restart", value: "restart" },
+          { name: "wipe", value: "wipe" },
+          { name: "raids", value: "raids" },
+          { name: "trade", value: "trade" }
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("onboard")
+    .setDescription("Onboarding panel tools")
+    .addSubcommand((sub) => sub.setName("post").setDescription("Post onboarding instructions (staff)")),
+  new SlashCommandBuilder()
+    .setName("raidmode")
+    .setDescription("Anti-raid moderation mode (staff)")
+    .addStringOption((opt) =>
+      opt.setName("state")
+        .setDescription("on or off")
+        .setRequired(true)
+        .addChoices(
+          { name: "on", value: "on" },
+          { name: "off", value: "off" }
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("survivor")
+    .setDescription("Fun survivor interaction tools")
+    .addSubcommand((sub) => sub.setName("tip").setDescription("Get a random survival tip"))
+    .addSubcommand((sub) => sub.setName("challenge").setDescription("Get a random survivor challenge")),
+  new SlashCommandBuilder()
+    .setName("audit")
+    .setDescription("View command audit logs (staff)")
+    .addSubcommand((sub) =>
+      sub.setName("list")
+        .setDescription("Show recent audit entries")
+        .addIntegerOption((opt) => opt.setName("limit").setDescription("How many entries (1-50)").setRequired(false))
+    ),
+  new SlashCommandBuilder()
+    .setName("incident")
+    .setDescription("Moderation incident tracking")
+    .addSubcommand((sub) =>
+      sub.setName("create")
+        .setDescription("Create a moderation incident (staff)")
+        .addUserOption((opt) => opt.setName("user").setDescription("Target user").setRequired(true))
+        .addStringOption((opt) =>
+          opt.setName("severity")
+            .setDescription("Severity level")
+            .setRequired(true)
+            .addChoices(
+              { name: "low", value: "low" },
+              { name: "medium", value: "medium" },
+              { name: "high", value: "high" },
+              { name: "critical", value: "critical" }
+            )
+        )
+        .addStringOption((opt) => opt.setName("reason").setDescription("Incident reason").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("list")
+        .setDescription("List incidents (staff)")
+        .addBooleanOption((opt) => opt.setName("open_only").setDescription("Show only open incidents").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("resolve")
+        .setDescription("Resolve incident by id (staff)")
+        .addStringOption((opt) => opt.setName("id").setDescription("Incident id").setRequired(true))
+        .addStringOption((opt) => opt.setName("note").setDescription("Resolution note").setRequired(false))
+    ),
+  new SlashCommandBuilder()
+    .setName("backup")
+    .setDescription("Backup/restore bot data stores (staff)")
+    .addSubcommand((sub) =>
+      sub.setName("create")
+        .setDescription("Create a data snapshot")
+        .addStringOption((opt) => opt.setName("label").setDescription("Backup label").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("list")
+        .setDescription("List backups")
+        .addIntegerOption((opt) => opt.setName("limit").setDescription("How many backups (1-30)").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("restore")
+        .setDescription("Restore backup by file name")
+        .addStringOption((opt) => opt.setName("file").setDescription("Backup file").setRequired(true))
+    )
 ].map((cmd) => cmd.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(token);
