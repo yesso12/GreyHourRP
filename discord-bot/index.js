@@ -145,6 +145,7 @@ const auditLogFile = path.join(stateDir, "audit.log.jsonl");
 const jobsFile = path.join(stateDir, "jobs.json");
 const smokeStatusFile = path.join(stateDir, "smoke-status.json");
 const backupsDir = path.join(stateDir, "backups");
+const roleSyncFile = path.join(process.cwd(), "config", "role-sync.json");
 
 const metrics = {
   startedAt: Date.now(),
@@ -162,7 +163,14 @@ const metrics = {
   logsWritten: 0,
   modCallsCreated: 0,
   modCallsClaimed: 0,
-  modCallsClosed: 0
+  modCallsClosed: 0,
+  roleSyncUpdates: 0,
+  commandLatency: {
+    le_200: 0,
+    le_500: 0,
+    le_1000: 0,
+    gt_1000: 0
+  }
 };
 const commandCooldowns = new Map();
 const abuseUserWindow = new Map();
@@ -633,6 +641,17 @@ function readJsonFile(filePath, fallback) {
   }
 }
 
+function loadRoleSyncRules() {
+  const raw = readJsonFile(roleSyncFile, { rules: [] });
+  const rules = Array.isArray(raw.rules) ? raw.rules : [];
+  return rules
+    .map((r) => ({
+      sourceRoleId: String(r?.sourceRoleId || "").trim(),
+      applyRoleIds: Array.isArray(r?.applyRoleIds) ? r.applyRoleIds.map((x) => String(x).trim()).filter(Boolean) : []
+    }))
+    .filter((r) => r.sourceRoleId && r.applyRoleIds.length);
+}
+
 function loadJobs() {
   return readJsonFile(jobsFile, []);
 }
@@ -749,6 +768,28 @@ function setMaintenanceState(enabled, message, actorId = "") {
     state.maintenanceModeAnnouncedAt = "";
   }
   saveState(state);
+}
+
+function loadAdminSafeModeState() {
+  const state = loadState();
+  return {
+    enabled: Boolean(state.adminSafeModeEnabled),
+    updatedAt: state.adminSafeModeUpdatedAt || "",
+    updatedBy: state.adminSafeModeUpdatedBy || ""
+  };
+}
+
+function setAdminSafeMode(enabled, actorId = "") {
+  const state = loadState();
+  state.adminSafeModeEnabled = Boolean(enabled);
+  state.adminSafeModeUpdatedAt = new Date().toISOString();
+  state.adminSafeModeUpdatedBy = actorId;
+  saveState(state);
+}
+
+function isSafeModeBlockedAdminAction(action) {
+  if (!loadAdminSafeModeState().enabled) return false;
+  return ["purge", "lockdown", "unlockdown", "rollback", "rolegrant", "rolerevoke"].includes(action);
 }
 
 function shouldBypassMaintenance(commandName) {
@@ -956,7 +997,16 @@ function startMetricsServer() {
       `gh_bot_modcalls_closed_total ${metrics.modCallsClosed}`,
       "# HELP gh_bot_modcalls_open Number of open moderator calls.",
       "# TYPE gh_bot_modcalls_open gauge",
-      `gh_bot_modcalls_open ${openModCases}`
+      `gh_bot_modcalls_open ${openModCases}`,
+      "# HELP gh_bot_rolesync_updates_total Total role-sync updates made.",
+      "# TYPE gh_bot_rolesync_updates_total counter",
+      `gh_bot_rolesync_updates_total ${metrics.roleSyncUpdates}`,
+      "# HELP gh_bot_command_latency_bucket Interaction duration buckets.",
+      "# TYPE gh_bot_command_latency_bucket counter",
+      `gh_bot_command_latency_bucket{le=\"200\"} ${metrics.commandLatency.le_200}`,
+      `gh_bot_command_latency_bucket{le=\"500\"} ${metrics.commandLatency.le_500}`,
+      `gh_bot_command_latency_bucket{le=\"1000\"} ${metrics.commandLatency.le_1000}`,
+      `gh_bot_command_latency_bucket{le=\"+Inf\"} ${metrics.commandLatency.gt_1000}`
     ];
     for (const [commandName, count] of Object.entries(metrics.byCommand)) {
       lines.push(`gh_bot_command_by_name_total{command="${commandName}"} ${count}`);
@@ -1307,11 +1357,13 @@ function summarizeMetrics() {
     `Deploy: ${deployTag}`,
     `Uptime: ${formatUptime(process.uptime())}`,
     `Commands: ${metrics.commandsTotal} (${metrics.commandErrors} errors)`,
+    `Latency Buckets: <=200ms ${metrics.commandLatency.le_200}, <=500ms ${metrics.commandLatency.le_500}, <=1000ms ${metrics.commandLatency.le_1000}, >1000ms ${metrics.commandLatency.gt_1000}`,
     `API Calls: ${metrics.apiCalls} (${metrics.apiErrors} errors)`,
     `Scheduler: ${metrics.schedulerRuns} runs (${metrics.schedulerErrors} errors)`,
     `Queue: ${metrics.queueProcessed} processed, ${pendingJobs} pending, ${metrics.queueFailed} failed`,
     `Abuse Blocks: ${metrics.abuseBlocked}`,
-    `Mod Calls: ${metrics.modCallsCreated} created, ${metrics.modCallsClaimed} claimed, ${metrics.modCallsClosed} closed`
+    `Mod Calls: ${metrics.modCallsCreated} created, ${metrics.modCallsClaimed} claimed, ${metrics.modCallsClosed} closed`,
+    `Role Sync Updates: ${metrics.roleSyncUpdates}`
   ].join("\n");
 }
 
@@ -1549,6 +1601,41 @@ client.on("guildMemberRemove", async (member) => {
   if (!channel || !channel.isTextBased()) return;
   const msg = goodbyeMessage.replace("{user}", member.user?.username || "A survivor");
   await sendMessageWithGuards(channel, { content: msg }, "guildMemberRemove");
+});
+
+client.on("guildMemberUpdate", async (oldMember, newMember) => {
+  try {
+    const rules = loadRoleSyncRules();
+    if (!rules.length) return;
+
+    const oldRoles = oldMember.roles.cache;
+    const newRoles = newMember.roles.cache;
+    let changed = false;
+
+    for (const rule of rules) {
+      const hadSource = oldRoles.has(rule.sourceRoleId);
+      const hasSource = newRoles.has(rule.sourceRoleId);
+      if (hadSource === hasSource) continue;
+
+      for (const roleId of rule.applyRoleIds) {
+        if (hasSource && !newRoles.has(roleId)) {
+          await newMember.roles.add(roleId, `Role sync: source ${rule.sourceRoleId} gained`).catch(() => null);
+          changed = true;
+        }
+        if (!hasSource && newRoles.has(roleId)) {
+          await newMember.roles.remove(roleId, `Role sync: source ${rule.sourceRoleId} lost`).catch(() => null);
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      metrics.roleSyncUpdates += 1;
+      logEvent("info", "rolesync.member.updated", { userId: newMember.id, guildId: newMember.guild.id });
+    }
+  } catch (err) {
+    logEvent("error", "rolesync.member.update.failed", { error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 client.on("messageCreate", async (message) => {
@@ -1822,6 +1909,14 @@ client.on("interactionCreate", async (interaction) => {
       row.approvedAt = new Date().toISOString();
       row.approvedBy = interaction.user.id;
       savePendingAdminApprovals(approvals);
+      if (isSafeModeBlockedAdminAction(row.action)) {
+        row.status = "blocked_safemode";
+        row.blockedAt = new Date().toISOString();
+        row.blockedBy = interaction.user.id;
+        savePendingAdminApprovals(approvals);
+        await interaction.reply({ content: `Execution blocked: safe mode is enabled for \`${row.action}\`.`, ephemeral: true });
+        return;
+      }
       try {
         const result = await executeAdminAction(interaction, row.action, row.payload, row.requestedBy, "");
         addIncident({
@@ -2832,6 +2927,95 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: `Reporter on \`${id}\` flagged (${row.reporterFlags} total flags).`, ephemeral: true });
         return;
       }
+
+      if (sub === "template") {
+        const type = interaction.options.getString("type", true);
+        const templates = {
+          acknowledge: "Thanks for the report. A moderator is now reviewing your case and will update you shortly.",
+          investigating: "We are actively investigating this case now. Please avoid engaging further while we review evidence.",
+          resolution: "This issue has been reviewed and resolved. Please reply with additional evidence if needed.",
+          insufficient_evidence: "We reviewed the report but do not yet have enough evidence to act. Please share additional details/screenshots if available."
+        };
+        const message = templates[type] || templates.acknowledge;
+        await sendMessageWithGuards(interaction.channel, { content: `📝 **Staff Update**\n${message}` }, "modcall.template", reqId);
+        await interaction.reply({ content: `Template posted (\`${type}\`).`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "export") {
+        const id = interaction.options.getString("id", true);
+        const row = data.cases.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: "Case not found.", ephemeral: true });
+          return;
+        }
+        await interaction.deferReply({ ephemeral: true });
+        const incidents = loadIncidents().filter((x) => x.userId === row.reporterId || (row.targetUserId && x.userId === row.targetUserId)).slice(0, 25);
+        let threadMessages = [];
+        if (interaction.guild && row.threadId) {
+          const thread = await interaction.guild.channels.fetch(row.threadId).catch(() => null);
+          if (thread && thread.isTextBased()) {
+            const fetched = await thread.messages.fetch({ limit: 100 }).catch(() => null);
+            if (fetched) {
+              threadMessages = fetched
+                .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+                .map((m) => ({
+                  id: m.id,
+                  at: new Date(m.createdTimestamp).toISOString(),
+                  authorId: m.author?.id || "",
+                  authorTag: m.author?.tag || "",
+                  content: truncate(m.content || "", 1800),
+                  attachments: Array.from(m.attachments.values()).map((a) => ({
+                    name: a.name || "",
+                    url: a.url || "",
+                    contentType: a.contentType || "",
+                    size: a.size || 0
+                  }))
+                }));
+            }
+          }
+        }
+        const bundle = {
+          exportedAt: new Date().toISOString(),
+          exportedBy: interaction.user.id,
+          case: row,
+          incidents,
+          threadMessages
+        };
+        const file = `modcase-${row.id}-bundle.json`;
+        await interaction.editReply({
+          content: `Exported case bundle for \`${row.id}\`.`,
+          files: [{ attachment: Buffer.from(JSON.stringify(bundle, null, 2), "utf-8"), name: file }]
+        });
+        return;
+      }
+
+      if (sub === "reopen") {
+        const id = interaction.options.getString("id", true);
+        const reason = interaction.options.getString("reason") || "Reopened for follow-up.";
+        const row = data.cases.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: "Case not found.", ephemeral: true });
+          return;
+        }
+        if (row.status !== "closed" && row.status !== "cancelled") {
+          await interaction.reply({ content: `Case \`${id}\` is already open.`, ephemeral: true });
+          return;
+        }
+        row.status = "open";
+        row.closedAt = "";
+        row.closedBy = "";
+        row.closeReason = "";
+        addCaseHistoryRow(row, "reopened", interaction.user.id, truncate(reason, 500));
+        saveModCallsState(data);
+        const thread = row.threadId ? await interaction.guild.channels.fetch(row.threadId).catch(() => null) : null;
+        if (thread && thread.isTextBased()) {
+          await sendMessageWithGuards(thread, { content: `♻️ Case reopened by <@${interaction.user.id}>. Reason: ${truncate(reason, 500)}` }, "modcall.reopen", reqId);
+        }
+        await notifyReporterUpdate(interaction.client, row, `Your case has been reopened: ${reason}`);
+        await interaction.reply({ content: `Case \`${id}\` reopened.`, ephemeral: true });
+        return;
+      }
     }
 
     if (interaction.commandName === "mod") {
@@ -2901,7 +3085,56 @@ client.on("interactionCreate", async (interaction) => {
       let action = sub;
       let payload = {};
 
-      if (sub === "purge") {
+      if (sub === "health") {
+        await interaction.deferReply({ ephemeral: true });
+        const approvals = loadPendingAdminApprovals();
+        const pendingApprovals = approvals.filter((x) => x.status === "pending");
+        const expiredApprovals = pendingApprovals.filter((x) => new Date(x.expiresAt || 0).getTime() < Date.now());
+        const snapshots = loadAdminSnapshots();
+        const backups = listDataBackups(1);
+        const latestBackup = backups[0] || null;
+        const backupCheck = latestBackup ? verifyBackupFile(latestBackup.file) : { ok: false, message: "No backups found." };
+        const safeMode = loadAdminSafeModeState();
+        const checks = await Promise.all([
+          checkAdminApi(),
+          checkTextChannel(logChannelId, "Log channel")
+        ]);
+        const allChecks = [
+          ...checks,
+          { ok: expiredApprovals.length === 0, summary: `Expired approvals: ${expiredApprovals.length}` },
+          { ok: pendingApprovals.length < 25, summary: `Pending approvals: ${pendingApprovals.length}` },
+          { ok: snapshots.length > 0, summary: `Snapshots available: ${snapshots.length}` },
+          { ok: backupCheck.ok, summary: `Latest backup: ${latestBackup ? latestBackup.file : "none"} (${backupCheck.ok ? "verified" : backupCheck.message})` },
+          { ok: true, summary: `Safe mode: ${safeMode.enabled ? "on" : "off"}` }
+        ];
+        const healthy = allChecks.every((x) => x.ok);
+        const embed = new EmbedBuilder()
+          .setTitle("Admin Control Plane Health")
+          .setDescription(allChecks.map((x) => `${x.ok ? "✅" : "❌"} ${x.summary}`).join("\n"))
+          .setColor(healthy ? 0x22c55e : 0xef4444)
+          .setTimestamp();
+        await interaction.editReply({ embeds: [embed] });
+        return;
+      } else if (sub === "doctor") {
+        await interaction.deferReply({ ephemeral: true });
+        const approvals = loadPendingAdminApprovals();
+        const pendingApprovals = approvals.filter((x) => x.status === "pending");
+        const expiredApprovals = pendingApprovals.filter((x) => new Date(x.expiresAt || 0).getTime() < Date.now());
+        const snapshots = loadAdminSnapshots();
+        const backups = listDataBackups(1);
+        const latestBackup = backups[0] || null;
+        const backupCheck = latestBackup ? verifyBackupFile(latestBackup.file) : { ok: false, message: "No backups found." };
+        const apiCheck = await checkAdminApi();
+        const suggestions = [];
+        if (!apiCheck.ok) suggestions.push("Admin API is failing. Verify ADMIN_API_BASE and auth credentials, then run `/health details:true`.");
+        if (expiredApprovals.length > 0) suggestions.push(`Clean up ${expiredApprovals.length} expired admin approvals from state.`);
+        if (pendingApprovals.length > 20) suggestions.push(`Pending approvals are high (${pendingApprovals.length}). Review and resolve stale requests.`);
+        if (!backupCheck.ok) suggestions.push("Create a fresh backup with `/backup create` and verify it before critical admin actions.");
+        if (!snapshots.length) suggestions.push("Create a rollback baseline with `/admin snapshot label:baseline`.");
+        if (!suggestions.length) suggestions.push("No urgent issues detected. Continue normal operations.");
+        await interaction.editReply({ content: suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n") });
+        return;
+      } else if (sub === "purge") {
         const amount = interaction.options.getInteger("amount", true);
         const channel = interaction.options.getChannel("channel") || interaction.channel;
         if (!channel || !channel.isTextBased()) {
@@ -2929,6 +3162,11 @@ client.on("interactionCreate", async (interaction) => {
         payload = { snapshotId: interaction.options.getString("snapshot_id", true) };
       } else {
         await interaction.reply({ content: "Unsupported admin action.", ephemeral: true });
+        return;
+      }
+
+      if (isSafeModeBlockedAdminAction(action)) {
+        await interaction.reply({ content: `Safe mode is enabled. \`${action}\` is temporarily blocked.`, ephemeral: true });
         return;
       }
 
@@ -3119,9 +3357,16 @@ client.on("interactionCreate", async (interaction) => {
 
       if (sub === "restore") {
         const file = interaction.options.getString("file", true);
+        const dryRun = interaction.options.getBoolean("dry_run") || false;
         const verify = verifyBackupFile(file);
         if (!verify.ok) {
           await interaction.reply({ content: `Refusing restore. Backup verification failed: ${verify.message}`, ephemeral: true });
+          return;
+        }
+        if (dryRun) {
+          const payload = JSON.parse(fs.readFileSync(path.join(backupsDir, file), "utf-8"));
+          const restoreKeys = Object.keys(payload.files || {}).filter((k) => payload.files[k] !== null && payload.files[k] !== undefined);
+          await interaction.reply({ content: `Dry run passed for \`${file}\`. Would restore ${restoreKeys.length} data store(s): ${restoreKeys.join(", ") || "none"}.`, ephemeral: true });
           return;
         }
         restoreDataBackup(file);
@@ -3177,6 +3422,7 @@ client.on("interactionCreate", async (interaction) => {
         const pendingJobs = jobs.filter((x) => x.status === "pending").length;
         const smoke = loadSmokeStatus();
         const maintenance = loadMaintenanceState();
+        const safeMode = loadAdminSafeModeState();
         const state = loadState();
         const lastSchedulerErr = state.lastSchedulerErrorAt || "none";
         const embed = new EmbedBuilder()
@@ -3186,6 +3432,7 @@ client.on("interactionCreate", async (interaction) => {
             { name: "Deploy", value: deployTag, inline: true },
             { name: "Mode", value: dryRunMode ? "dry-run" : (stagingMode ? "staging" : "live"), inline: true },
             { name: "Maintenance", value: maintenance.enabled ? `on - ${truncate(maintenance.message, 80)}` : "off", inline: false },
+            { name: "Safe Mode", value: safeMode.enabled ? "on" : "off", inline: true },
             { name: "Queue", value: `${pendingJobs} pending / ${metrics.queueFailed} failed`, inline: true },
             { name: "Schedulers", value: `${metrics.schedulerRuns} runs / ${metrics.schedulerErrors} errors`, inline: true },
             { name: "Command Errors", value: `${metrics.commandErrors}/${metrics.commandsTotal}`, inline: true },
@@ -3207,6 +3454,14 @@ client.on("interactionCreate", async (interaction) => {
           await postMaintenanceBanner(reqId);
         }
         await interaction.reply({ content: `Maintenance mode ${enabled ? "enabled" : "disabled"}.`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "safemode") {
+        const stateValue = interaction.options.getString("state", true);
+        const enabled = stateValue === "on";
+        setAdminSafeMode(enabled, interaction.user.id);
+        await interaction.reply({ content: `Safe mode ${enabled ? "enabled" : "disabled"}.`, ephemeral: true });
         return;
       }
 
@@ -3741,16 +3996,22 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ content: "Error processing command.", ephemeral: true });
     }
   } finally {
+    const durationMs = Date.now() - auditStartedAt;
+    if (durationMs <= 200) metrics.commandLatency.le_200 += 1;
+    else if (durationMs <= 500) metrics.commandLatency.le_500 += 1;
+    else if (durationMs <= 1000) metrics.commandLatency.le_1000 += 1;
+    else metrics.commandLatency.gt_1000 += 1;
+
     logEvent("info", "command.complete", {
       reqId,
       command: interaction.commandName || "",
       status: auditStatus,
-      durationMs: Date.now() - auditStartedAt
+      durationMs
     });
     appendAuditEntry({
       reqId,
       timeUtc: new Date().toISOString(),
-      durationMs: Date.now() - auditStartedAt,
+      durationMs,
       guildId: interaction.guildId || "",
       channelId: interaction.channelId || "",
       userId: interaction.user?.id || "",

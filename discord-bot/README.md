@@ -155,15 +155,15 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/ping`
 - `/help`
 - `/health`
-- `/ops status|maintenance|inventory`
-- `/modcall setup|create|list|claim|transfer|close|status|evidence|flag`
+- `/ops status|maintenance|inventory|safemode`
+- `/modcall setup|create|list|claim|transfer|close|status|evidence|flag|template|export|reopen`
 - `/mod shift|coverage|metrics`
-- `/admin purge|lockdown|unlockdown|rolegrant|rolerevoke|snapshot|rollback`
+- `/admin purge|lockdown|unlockdown|rolegrant|rolerevoke|snapshot|rollback|health|doctor`
 - `/metrics`
 - `/audit list`
 - `/audit export`
 - `/incident create|list|resolve`
-- `/backup create|list|restore`
+- `/backup create|list|restore` (`dry_run` supported on restore)
 - `/lfg create|list|close`
 - `/faction create|recruit|roster|disband`
 - `/trade post|list|close`

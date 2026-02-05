@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { REST, Routes, SlashCommandBuilder } from "discord.js";
+import { PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.DISCORD_CLIENT_ID;
@@ -33,6 +33,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("ops")
     .setDescription("Operations controls (staff only)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub.setName("status").setDescription("Show runtime operations status")
     )
@@ -66,10 +67,25 @@ const commands = [
               { name: "export", value: "export" }
             )
         )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("safemode")
+        .setDescription("Toggle safe mode for high-risk admin actions")
+        .addStringOption((opt) =>
+          opt.setName("state")
+            .setDescription("on or off")
+            .setRequired(true)
+            .addChoices(
+              { name: "on", value: "on" },
+              { name: "off", value: "off" }
+            )
+        )
     ),
   new SlashCommandBuilder()
     .setName("modcall")
     .setDescription("Real-time moderator call workflow")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub.setName("setup").setDescription("Post live mod call button panel (staff)")
     )
@@ -141,10 +157,40 @@ const commands = [
         .setDescription("Flag false-report abuse (staff)")
         .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
         .addStringOption((opt) => opt.setName("reason").setDescription("Why this is a false report").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("template")
+        .setDescription("Post a canned staff response template")
+        .addStringOption((opt) =>
+          opt.setName("type")
+            .setDescription("Template type")
+            .setRequired(true)
+            .addChoices(
+              { name: "acknowledge", value: "acknowledge" },
+              { name: "investigating", value: "investigating" },
+              { name: "resolution", value: "resolution" },
+              { name: "insufficient-evidence", value: "insufficient_evidence" }
+            )
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("export")
+        .setDescription("Export a full case bundle")
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("reopen")
+        .setDescription("Reopen a previously closed case")
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
+        .addStringOption((opt) => opt.setName("reason").setDescription("Reason for reopening").setRequired(false))
     ),
   new SlashCommandBuilder()
     .setName("mod")
     .setDescription("Moderator shift and analytics")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub
         .setName("shift")
@@ -168,6 +214,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("admin")
     .setDescription("Admin control plane with approvals and rollback")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub
         .setName("purge")
@@ -214,6 +261,16 @@ const commands = [
         .setName("rollback")
         .setDescription("Rollback channel lock/slowmode snapshot")
         .addStringOption((opt) => opt.setName("snapshot_id").setDescription("Snapshot id").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("health")
+        .setDescription("Run admin control plane health checks")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("doctor")
+        .setDescription("Suggest precise remediation for admin control issues")
     ),
   new SlashCommandBuilder().setName("metrics").setDescription("Show bot runtime metrics (staff only)"),
   new SlashCommandBuilder().setName("whois").setDescription("Show member profile")
@@ -580,6 +637,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("audit")
     .setDescription("View command audit logs (staff)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub.setName("list")
         .setDescription("Show recent audit entries")
@@ -602,6 +660,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("incident")
     .setDescription("Moderation incident tracking")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub.setName("create")
         .setDescription("Create a moderation incident (staff)")
@@ -633,6 +692,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("backup")
     .setDescription("Backup/restore bot data stores (staff)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub.setName("create")
         .setDescription("Create a data snapshot")
@@ -647,6 +707,7 @@ const commands = [
       sub.setName("restore")
         .setDescription("Restore backup by file name")
         .addStringOption((opt) => opt.setName("file").setDescription("Backup file").setRequired(true))
+        .addBooleanOption((opt) => opt.setName("dry_run").setDescription("Validate restore without applying changes").setRequired(false))
     )
 ].map((cmd) => cmd.toJSON());
 
