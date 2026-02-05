@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 type Particle = {
   x: number
@@ -22,7 +22,7 @@ export function Particles() {
     let w = 0
     let h = 0
     const particles: Particle[] = []
-    const count = 70
+    const count = 80
 
     const resize = () => {
       w = canvas.clientWidth
@@ -38,10 +38,10 @@ export function Particles() {
         particles.push({
           x: Math.random() * w,
           y: Math.random() * h,
-          r: 0.6 + Math.random() * 2.2,
-          vx: (-0.2 + Math.random() * 0.4),
-          vy: (0.10 + Math.random() * 0.55),
-          a: 0.05 + Math.random() * 0.11
+          r: 0.6 + Math.random() * 2.4,
+          vx: -0.18 + Math.random() * 0.36,
+          vy: 0.08 + Math.random() * 0.48,
+          a: 0.04 + Math.random() * 0.12
         })
       }
     }
@@ -55,9 +55,6 @@ export function Particles() {
     const tick = () => {
       ctx.clearRect(0, 0, w, h)
 
-      // soft vignettes (no explicit colors, uses current fill style)
-      ctx.globalCompositeOperation = 'source-over'
-
       for (const p of particles) {
         p.x += p.vx
         p.y += p.vy
@@ -68,7 +65,7 @@ export function Particles() {
         ctx.beginPath()
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
         ctx.closePath()
-        ctx.fillStyle = `rgba(255,255,255,${p.a})`
+        ctx.fillStyle = `rgba(241,230,208,${p.a})`
         ctx.fill()
       }
 
@@ -91,7 +88,7 @@ export function Particles() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        opacity: 0.55
+        opacity: 0.6
       }}
       aria-hidden="true"
     />

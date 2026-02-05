@@ -1,31 +1,45 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { Section } from '../components/Section'
 
 export function Discord() {
   useEffect(() => {
-    // Optional: redirect after a moment, but keep page usable.
     const t = setTimeout(() => {
-      // comment out if you prefer no auto-redirect
-      // window.location.href = 'https://discord.gg/e4d8YrcSt'
-    }, 1200)
+      window.location.href = 'https://discord.gg/e4d8YrcSt'
+    }, 4000)
+
     return () => clearTimeout(t)
   }, [])
 
   return (
     <div>
-      <Section eyebrow="Community" title="Join the family.">
-        <div className="card">
-          <div className="p" style={{ fontSize: 18 }}>
-            Grey Hour RP is built on continuity — not resets. If you want a place where your character can become part of the world’s memory, you’re in the right place.
+      <section className="page-hero">
+        <div className="container">
+          <div className="glass">
+            <div className="badge"><span style={{ color: 'var(--accent2)' }}>Signal Relay</span></div>
+            <h1 className="hero-title">Open the channel.</h1>
+            <div className="p" style={{ maxWidth: 820 }}>
+              The Grey Hour Discord is your mission control: announcements, status updates, and community support.
+            </div>
           </div>
-          <div style={{ marginTop: 14, display:'flex', flexWrap:'wrap', gap: 10 }}>
-            <a className="btn btn-primary" href="https://discord.gg/e4d8YrcSt" target="_blank" rel="noreferrer">
-              Open Discord Invite
+        </div>
+      </section>
+
+      <Section eyebrow="Transmission" title="Join the Grey Hour network">
+        <div className="callout" style={{ textAlign: 'center' }}>
+          <div className="p">
+            You’ll be redirected automatically in a few seconds.
+            If not, use the button below.
+          </div>
+
+          <div style={{ marginTop: 18 }}>
+            <a
+              className="btn btn-primary"
+              href="https://discord.gg/e4d8YrcSt"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open Discord
             </a>
-            <a className="btn" href="/how-to-join">How to Join</a>
-          </div>
-          <div className="small" style={{ marginTop: 12 }}>
-            No harsh RP verification. Standards can be learned and taught as the world evolves.
           </div>
         </div>
       </Section>

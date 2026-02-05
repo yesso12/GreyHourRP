@@ -1,37 +1,58 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { fetchJson } from './utils'
-import type { ServerStatus } from './content'
-
-const DOT: Record<ServerStatus['status'], string> = {
-  online: '🟢',
-  maintenance: '🔧',
-  offline: '🔴'
-}
-
-const LABEL: Record<ServerStatus['status'], string> = {
-  online: 'Server Online',
-  maintenance: 'Under Construction',
-  offline: 'Server Offline'
-}
+import type { ServerStatus } from '../types/content'
 
 export function StatusBadge() {
   const [data, setData] = useState<ServerStatus | null>(null)
 
   useEffect(() => {
-    fetchJson<ServerStatus>('/content/server-status.json')
-      .then(setData)
-      .catch(() => setData(null))
+    const load = () => {
+      fetchJson<ServerStatus>('/content/server-status.json')
+        .then(setData)
+        .catch(() => setData(null))
+    }
+
+    load()
+    const id = setInterval(load, 60000)
+    return () => clearInterval(id)
   }, [])
 
-  if (!data) return null
+  const status = data?.status ?? 'offline'
+
+  const color =
+    status === 'online'
+      ? '#4ade80'
+      : status === 'maintenance'
+      ? '#facc15'
+      : '#f87171'
+
+  const label =
+    status === 'online'
+      ? 'Online'
+      : status === 'maintenance'
+      ? 'Maintenance'
+      : 'Offline'
 
   return (
-    <div className="badge" style={{ gap: 10 }}>
-      <span aria-hidden="true">{DOT[data.status]}</span>
-      <div style={{ display:'flex', flexDirection:'column' }}>
-        <span style={{ fontWeight: 720, letterSpacing: '-0.01em' }}>{LABEL[data.status]}</span>
-        <span className="small" style={{ marginTop: 2 }}>{data.message}</span>
-      </div>
+    <div
+      title={data?.message}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        fontSize: 13,
+        opacity: 0.85
+      }}
+    >
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          background: color
+        }}
+      />
+      <span>{label}</span>
     </div>
   )
 }

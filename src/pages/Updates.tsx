@@ -1,64 +1,100 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Section } from '../components/Section'
 import { fetchJson } from '../components/utils'
-import type { UpdateItem } from '../components/content'
-
-function pill(type: UpdateItem['type']) {
-  const map: Record<UpdateItem['type'], string> = {
-    Update: '🟢 Update',
-    Hotfix: '🔴 Hotfix',
-    Balance: '🟡 Balance',
-    Event: '🔵 Event',
-  }
-  return map[type]
-}
+import type { UpdateItem } from '../types/content'
 
 export function Updates() {
-  const [items, setItems] = useState<UpdateItem[] | null>(null)
+  const [items, setItems] = useState<UpdateItem[]>([])
+  const [query, setQuery] = useState('')
+  const [expanded, setExpanded] = useState<string | null>(null)
 
   useEffect(() => {
     fetchJson<UpdateItem[]>('/content/updates.json')
       .then(setItems)
-      .catch(() => setItems(null))
+      .catch(() => setItems([]))
   }, [])
 
-  const sorted = useMemo(() => {
-    return (items ?? []).slice().sort((a, b) => b.date.localeCompare(a.date))
-  }, [items])
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return items
+      .filter(u =>
+        q.length === 0 ||
+        u.title.toLowerCase().includes(q) ||
+        u.body.join(' ').toLowerCase().includes(q)
+      )
+      .sort((a, b) => b.date.localeCompare(a.date))
+  }, [items, query])
+
+  const latest = filtered[0]
+  const rest = filtered.slice(1)
 
   return (
     <div>
-      <Section eyebrow="Changelog" title="Server updates that keep the world honest.">
-        <div className="p" style={{ maxWidth: 860 }}>
-          This log is how we keep continuity visible. Nothing changes silently. If the world shifts, you’ll see it here.
-        </div>
-
-        <div className="grid" style={{ marginTop: 14 }}>
-          {sorted.map(u => (
-            <div key={u.id} className="card">
-              <div style={{ display:'flex', flexWrap:'wrap', gap: 10, alignItems:'center', justifyContent:'space-between' }}>
-                <div style={{ display:'flex', gap: 10, alignItems:'center', flexWrap:'wrap' }}>
-                  <div className="badge">{pill(u.type)}</div>
-                  <div className="small">{u.date}{u.version ? ` • ${u.version}` : ''}</div>
-                </div>
-                <div className="small" style={{ opacity: 0.85 }}>Grey Hour RP</div>
-              </div>
-
-              <div style={{ fontWeight: 800, marginTop: 10, letterSpacing:'-0.01em' }}>{u.title}</div>
-              <ul className="p" style={{ marginTop: 10 }}>
-                {u.items.map((it, idx) => <li key={idx}>{it}</li>)}
-              </ul>
+      <section className="page-hero">
+        <div className="container">
+          <div className="glass">
+            <div className="badge"><span style={{ color: 'var(--accent2)' }}>Signal Updates</span></div>
+            <h1 className="hero-title">The world keeps moving.</h1>
+            <div className="p" style={{ maxWidth: 820 }}>
+              Grey Hour RP is actively maintained. Updates cover new content, balance passes, and world events.
             </div>
-          ))}
-        </div>
-
-        <div className="hr" />
-        <div className="card">
-          <div style={{ fontWeight: 760 }}>Admin note</div>
-          <div className="p" style={{ marginTop: 8 }}>
-            Updates are managed via <span className="kbd">public/content/updates.json</span>. No backend required.
           </div>
         </div>
+      </section>
+
+      <Section eyebrow="Search" title="Find a transmission update">
+        <div className="card">
+          <input
+            className="input"
+            placeholder="Search updates…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+        </div>
+      </Section>
+
+      {latest && (
+        <Section eyebrow="Latest" title={latest.title}>
+          <div className="card" style={{ borderLeft: '4px solid var(--accent)' }}>
+            <div className="small">Latest Update • {latest.date}</div>
+            <div style={{ marginTop: 12, lineHeight: 1.7 }}>
+              {latest.body.map((line, i) => (
+                <div key={i} style={{ marginTop: line === '' ? 10 : 0 }}>
+                  {line}
+                </div>
+              ))}
+            </div>
+          </div>
+        </Section>
+      )}
+
+      <Section eyebrow="Archive" title="Update history">
+        {rest.length === 0 && !latest && (
+          <div className="card">
+            <div className="small">No updates published yet.</div>
+          </div>
+        )}
+
+        {rest.length > 0 && (
+          <div className="timeline">
+            {rest.map(u => {
+              const isOpen = expanded === u.id
+              return (
+                <div key={u.id} className="timeline-item" onClick={() => setExpanded(isOpen ? null : u.id)}>
+                  <div className="timeline-title">{u.title}</div>
+                  <div className="small">{u.date}</div>
+                  {isOpen && (
+                    <div className="p" style={{ marginTop: 10 }}>
+                      {u.body.map((line, i) => (
+                        <div key={i} style={{ marginTop: line === '' ? 10 : 0 }}>{line}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </Section>
     </div>
   )
