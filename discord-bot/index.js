@@ -2960,6 +2960,10 @@ client.on("interactionCreate", async (interaction) => {
       const data = loadModCallsState();
       const row = data.cases.find((x) => x.id === caseId);
       if (!row) {
+        if (action === "close") {
+          const closed = await closeTicketConversation(interaction, interaction.channel);
+          if (closed) return;
+        }
         await interaction.reply({ content: "Case not found.", ephemeral: true });
         return;
       }
