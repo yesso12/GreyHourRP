@@ -864,6 +864,17 @@ const commands = [
     )
     .addSubcommand((sub) =>
       sub
+        .setName("forceclose")
+        .setDescription("Owner/admin recovery close for broken ticket metadata")
+        .addChannelOption((opt) =>
+          opt.setName("channel").setDescription("Ticket channel/thread to force close").setRequired(false)
+        )
+        .addStringOption((opt) =>
+          opt.setName("reason").setDescription("Optional reason for audit/deletion log").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName("intake")
         .setDescription("Open structured ticket intake form")
     )

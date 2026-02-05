@@ -365,6 +365,7 @@ const HELP_CATALOG = [
   { syntax: "/poll", desc: "Create quick reaction poll.", staffOnly: true, policyKey: "poll" },
   { syntax: "/event", desc: "Create/list/announce/end events.", staffOnly: true, policyKey: "event" },
   { syntax: "/ticket close", desc: "Close ticket thread/channel.", staffOnly: true },
+  { syntax: "/ticket forceclose", desc: "Owner/admin force-delete a ticket channel/thread (recovery path).", staffOnly: true, policyKey: "admin" },
   { syntax: "/ticket reopen", desc: "Reopen closed ticket by id.", staffOnly: true },
   { syntax: "/ticket feedback", desc: "Submit post-ticket satisfaction feedback.", staffOnly: false },
   { syntax: "/onboard", desc: "Post onboarding panel.", staffOnly: true, policyKey: "onboard" },
@@ -2412,6 +2413,15 @@ function isAuthorizedMember(member, guildOwnerId) {
   return hasRole(member, allowedRoleIds) || hasRole(member, ownerRoleIds);
 }
 
+function isOwnerOrAdminMember(guild, member) {
+  if (!guild || !member) return false;
+  const isOwner = member.id === guild.ownerId || ownerUserIds.includes(member.id) || hasRole(member, ownerRoleIds);
+  if (isOwner) return true;
+  const policy = loadPermissionPolicy();
+  const adminRoleIds = Array.isArray(policy.commandRoleIds?.admin) ? policy.commandRoleIds.admin : [];
+  return member.permissions.has(PermissionsBitField.Flags.Administrator) || hasRole(member, adminRoleIds);
+}
+
 function statusColor(status) {
   if (status === "online") return 0x4ade80;
   if (status === "maintenance") return 0xfacc15;
@@ -2658,6 +2668,28 @@ async function requireStaff(interaction, commandName = interaction.commandName |
     return null;
   }
 
+  return member;
+}
+
+async function requireOwnerOrAdmin(interaction, policyKey = "admin") {
+  if (!interaction.inGuild() || !interaction.guild) {
+    await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+    return null;
+  }
+  const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+  if (!member) {
+    await interaction.reply({ content: "Unable to load your member profile.", ephemeral: true });
+    return null;
+  }
+  const isOwner = member.id === interaction.guild.ownerId || ownerUserIds.includes(member.id) || hasRole(member, ownerRoleIds);
+  if (!isOwnerOrAdminMember(interaction.guild, member)) {
+    await interaction.reply({ content: "Owner/Admin only.", ephemeral: true });
+    return null;
+  }
+  if (!isOwner && policyKey && !hasPolicyAccess(member, policyKey)) {
+    await interaction.reply({ content: `Permission policy denied access to /${policyKey}.`, ephemeral: true });
+    return null;
+  }
   return member;
 }
 
@@ -6478,6 +6510,58 @@ client.on("interactionCreate", async (interaction) => {
         const closed = await closeTicketConversation(interaction, channel);
         if (closed) return;
         await interaction.reply({ content: "Run this inside a ticket channel/thread to close it.", ephemeral: true });
+        return;
+      }
+
+      if (sub === "forceclose") {
+        const member = await requireOwnerOrAdmin(interaction, "admin");
+        if (!member) return;
+
+        const target = interaction.options.getChannel("channel") || interaction.channel;
+        if (!target) {
+          await interaction.reply({ content: "Invalid channel target.", ephemeral: true });
+          return;
+        }
+
+        const isThread = target.type === ChannelType.PublicThread || target.type === ChannelType.PrivateThread;
+        const parent = isThread ? (target.parent || null) : null;
+        const deleteTarget = (isThread && parent && isTicketLikeChannel(parent)) ? parent : target;
+        const ticketLike = isTicketLikeChannel(target) || isTicketLikeChannel(deleteTarget);
+
+        if (!ticketLike) {
+          await interaction.reply({
+            content: "Force close only works on ticket-like channels/threads (name starts with `ticket-`).",
+            ephemeral: true
+          });
+          return;
+        }
+
+        const tickets = loadTickets();
+        let updated = 0;
+        for (const row of tickets) {
+          if (row.status !== "open") continue;
+          if (row.channelId === target.id || row.channelId === deleteTarget.id || (parent && row.channelId === parent.id)) {
+            row.status = "closed";
+            row.closedAt = new Date().toISOString();
+            row.closedBy = interaction.user.id;
+            row.forceClosed = true;
+            updated += 1;
+          }
+        }
+        if (updated) saveTickets(tickets);
+
+        await interaction.reply({ content: `Force-closing ${deleteTarget.toString()}...`, ephemeral: true });
+        const reason = truncate(interaction.options.getString("reason") || `Ticket force-closed by ${interaction.user.tag}`, 180);
+        const deleted = await deleteTarget.delete(reason).then(() => true).catch(() => false);
+        if (!deleted) {
+          await interaction.editReply({
+            content: "I marked what I could, but failed to delete the channel/thread. Check bot Manage Channels permission."
+          }).catch(() => {});
+          return;
+        }
+        await interaction.editReply({
+          content: `Force-closed and deleted ${deleteTarget.toString()}.${updated ? ` Updated ${updated} ticket record(s).` : " No open ticket records were found (metadata-recovery path)."}`.trim()
+        }).catch(() => {});
         return;
       }
 
