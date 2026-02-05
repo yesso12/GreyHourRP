@@ -23,6 +23,9 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - Ops watchdog alerts for queue backlog, scheduler failures, command error rate, and stale/failed smoke checks.
 - Maintenance mode gate for non-staff commands with single-banner announcement.
 - `/ops inventory` can snapshot members, roles, and channels (summary/export).
+- Live moderator call workflow with button intake, SLA escalation, assignment, transfer, and closure.
+- Case evidence intake (attachments/links), context packs, reporter DM updates, and quick safety actions.
+- Moderator shift tracking, coverage view, and weekly moderation digest metrics.
 - Admin-only broadcast to announcement channel.
 - Auto status polling + change announcements.
 - Auto updates polling + announcements.
@@ -103,6 +106,15 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `WIPE_ALERT_ROLE_ID`
 - `RAIDS_ALERT_ROLE_ID`
 - `TRADE_ALERT_ROLE_ID`
+- `MODCALL_CHANNEL_ID`
+- `MODCALL_ROLE_ID`
+- `SENIOR_MOD_ROLE_ID`
+- `TRUSTED_ROLE_IDS` (comma-separated trusted roles get higher priority)
+- `MODCALL_COOLDOWN_SECONDS` (default 120)
+- `MODCALL_ESCALATE_MINUTES` (default 5)
+- `MODCALL_ESCALATE_REPEAT_MINUTES` (default 10)
+- `MODCALL_DIGEST_HOUR_UTC` (default 13)
+- `MODCALL_DIGEST_WEEKDAY_UTC` (0=Sun..6=Sat, default 1)
 - `RAID_MODE_MAX_MENTIONS` (default 5)
 - `RAID_MODE_MIN_ACCOUNT_DAYS` (default 7)
 - `AUTO_STATUS_MINUTES` (default 10)
@@ -139,6 +151,8 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/help`
 - `/health`
 - `/ops status|maintenance|inventory`
+- `/modcall setup|create|list|claim|transfer|close|status|evidence|flag`
+- `/mod shift|coverage|metrics`
 - `/metrics`
 - `/audit list`
 - `/audit export`

@@ -67,6 +67,104 @@ const commands = [
             )
         )
     ),
+  new SlashCommandBuilder()
+    .setName("modcall")
+    .setDescription("Real-time moderator call workflow")
+    .addSubcommand((sub) =>
+      sub.setName("setup").setDescription("Post live mod call button panel (staff)")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("create")
+        .setDescription("Open a live moderator case")
+        .addStringOption((opt) =>
+          opt.setName("severity")
+            .setDescription("Case severity")
+            .setRequired(false)
+            .addChoices(
+              { name: "low", value: "low" },
+              { name: "medium", value: "medium" },
+              { name: "high", value: "high" },
+              { name: "critical", value: "critical" }
+            )
+        )
+        .addStringOption((opt) => opt.setName("category").setDescription("Abuse, harassment, cheating, etc").setRequired(false))
+        .addStringOption((opt) => opt.setName("details").setDescription("What is happening right now?").setRequired(false))
+        .addUserOption((opt) => opt.setName("target").setDescription("User involved").setRequired(false))
+        .addAttachmentOption((opt) => opt.setName("attachment").setDescription("Screenshot/video evidence").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("list")
+        .setDescription("List mod cases (staff)")
+        .addBooleanOption((opt) => opt.setName("open_only").setDescription("Show open only (default true)").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("claim")
+        .setDescription("Claim a mod case (staff)")
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("transfer")
+        .setDescription("Transfer a case to another moderator (staff)")
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
+        .addUserOption((opt) => opt.setName("to").setDescription("Moderator user").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("close")
+        .setDescription("Close a mod case (staff)")
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
+        .addStringOption((opt) => opt.setName("reason").setDescription("Resolution reason").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("status")
+        .setDescription("Send reporter status update (staff)")
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
+        .addStringOption((opt) => opt.setName("message").setDescription("Status message").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("evidence")
+        .setDescription("Attach evidence to case (staff)")
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
+        .addStringOption((opt) => opt.setName("note").setDescription("Evidence notes").setRequired(false))
+        .addStringOption((opt) => opt.setName("url").setDescription("Evidence URL").setRequired(false))
+        .addAttachmentOption((opt) => opt.setName("attachment").setDescription("Evidence attachment").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("flag")
+        .setDescription("Flag false-report abuse (staff)")
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
+        .addStringOption((opt) => opt.setName("reason").setDescription("Why this is a false report").setRequired(false))
+    ),
+  new SlashCommandBuilder()
+    .setName("mod")
+    .setDescription("Moderator shift and analytics")
+    .addSubcommand((sub) =>
+      sub
+        .setName("shift")
+        .setDescription("Set your moderator shift status")
+        .addStringOption((opt) =>
+          opt.setName("state")
+            .setDescription("on or off")
+            .setRequired(true)
+            .addChoices(
+              { name: "on", value: "on" },
+              { name: "off", value: "off" }
+            )
+        )
+    )
+    .addSubcommand((sub) =>
+      sub.setName("coverage").setDescription("Show on-shift coverage and open queue")
+    )
+    .addSubcommand((sub) =>
+      sub.setName("metrics").setDescription("Show weekly moderation metrics")
+    ),
   new SlashCommandBuilder().setName("metrics").setDescription("Show bot runtime metrics (staff only)"),
   new SlashCommandBuilder().setName("whois").setDescription("Show member profile")
     .addUserOption((opt) =>

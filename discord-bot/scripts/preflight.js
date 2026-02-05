@@ -67,6 +67,9 @@ async function main() {
     { key: "STATUS_CHANNEL_ID", id: process.env.STATUS_CHANNEL_ID },
     { key: "LOG_CHANNEL_ID", id: process.env.LOG_CHANNEL_ID }
   ];
+  if (process.env.MODCALL_CHANNEL_ID) {
+    channels.push({ key: "MODCALL_CHANNEL_ID", id: process.env.MODCALL_CHANNEL_ID });
+  }
 
   for (const row of channels) {
     const channel = await guild.channels.fetch(row.id).catch(() => null);

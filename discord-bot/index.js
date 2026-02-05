@@ -37,6 +37,15 @@ const restartAlertRoleId = process.env.RESTART_ALERT_ROLE_ID || "";
 const wipeAlertRoleId = process.env.WIPE_ALERT_ROLE_ID || "";
 const raidsAlertRoleId = process.env.RAIDS_ALERT_ROLE_ID || "";
 const tradeAlertRoleId = process.env.TRADE_ALERT_ROLE_ID || "";
+const modCallChannelId = process.env.MODCALL_CHANNEL_ID || "";
+const modCallRoleId = process.env.MODCALL_ROLE_ID || "";
+const seniorModRoleId = process.env.SENIOR_MOD_ROLE_ID || "";
+const trustedRoleIds = (process.env.TRUSTED_ROLE_IDS || "").split(",").map((r) => r.trim()).filter(Boolean);
+const modCallCooldownSeconds = Number(process.env.MODCALL_COOLDOWN_SECONDS || 120);
+const modCallEscalateMinutes = Number(process.env.MODCALL_ESCALATE_MINUTES || 5);
+const modCallEscalateRepeatMinutes = Number(process.env.MODCALL_ESCALATE_REPEAT_MINUTES || 10);
+const modCallDigestHourUtc = Number(process.env.MODCALL_DIGEST_HOUR_UTC || 13);
+const modCallDigestWeekdayUtc = Number(process.env.MODCALL_DIGEST_WEEKDAY_UTC || 1);
 const raidModeMaxMentions = Number(process.env.RAID_MODE_MAX_MENTIONS || 5);
 const raidModeMinAccountDays = Number(process.env.RAID_MODE_MIN_ACCOUNT_DAYS || 7);
 const allowedRoleIds = (process.env.ALLOWED_ROLE_IDS || "").split(",").map(r => r.trim()).filter(Boolean);
@@ -92,10 +101,17 @@ function validateStartupConfig() {
   if (smokeStatusMaxAgeMinutes < 1) errors.push("SMOKE_STATUS_MAX_AGE_MINUTES must be >= 1.");
   if (auditRetentionDays < 1) errors.push("AUDIT_RETENTION_DAYS must be >= 1.");
   if (incidentRetentionDays < 1) errors.push("INCIDENT_RETENTION_DAYS must be >= 1.");
+  if (modCallCooldownSeconds < 1) errors.push("MODCALL_COOLDOWN_SECONDS must be >= 1.");
+  if (modCallEscalateMinutes < 1) errors.push("MODCALL_ESCALATE_MINUTES must be >= 1.");
+  if (modCallEscalateRepeatMinutes < 1) errors.push("MODCALL_ESCALATE_REPEAT_MINUTES must be >= 1.");
+  if (modCallDigestHourUtc < 0 || modCallDigestHourUtc > 23) errors.push("MODCALL_DIGEST_HOUR_UTC must be 0-23.");
+  if (modCallDigestWeekdayUtc < 0 || modCallDigestWeekdayUtc > 6) errors.push("MODCALL_DIGEST_WEEKDAY_UTC must be 0-6.");
 
   if (!announceChannelId) warnings.push("ANNOUNCE_CHANNEL_ID is not configured; announcement features will be limited.");
   if (!statusChannelId) warnings.push("STATUS_CHANNEL_ID is not configured; status autoposting is disabled.");
   if (!logChannelId) warnings.push("LOG_CHANNEL_ID is not configured; activity feed is disabled.");
+  if (!modCallRoleId) warnings.push("MODCALL_ROLE_ID is not configured; mod call pings will be limited.");
+  if (!modCallChannelId) warnings.push("MODCALL_CHANNEL_ID is not configured; modcall setup defaults to current channel.");
   if (!alertChannelId) warnings.push("ALERT_CHANNEL_ID/LOG_CHANNEL_ID/ANNOUNCE_CHANNEL_ID not configured; failure alerting disabled.");
   if (!fs.existsSync(permissionPolicyFile)) warnings.push(`PERMISSION_POLICY_FILE not found at ${permissionPolicyFile}; default open policy will apply.`);
   if (stagingMode) warnings.push("STAGING_MODE is enabled; outbound channel posts are suppressed.");
@@ -121,6 +137,7 @@ const remindersFile = path.join(stateDir, "reminders.json");
 const eventsFile = path.join(stateDir, "events.json");
 const communityFile = path.join(stateDir, "community.json");
 const incidentsFile = path.join(stateDir, "incidents.json");
+const modCallsFile = path.join(stateDir, "modcalls.json");
 const auditLogFile = path.join(stateDir, "audit.log.jsonl");
 const jobsFile = path.join(stateDir, "jobs.json");
 const smokeStatusFile = path.join(stateDir, "smoke-status.json");
@@ -139,7 +156,10 @@ const metrics = {
   queueProcessed: 0,
   queueFailed: 0,
   abuseBlocked: 0,
-  logsWritten: 0
+  logsWritten: 0,
+  modCallsCreated: 0,
+  modCallsClaimed: 0,
+  modCallsClosed: 0
 };
 const commandCooldowns = new Map();
 const abuseUserWindow = new Map();
@@ -161,6 +181,7 @@ const dataFiles = {
   events: eventsFile,
   community: communityFile,
   incidents: incidentsFile,
+  modcalls: modCallsFile,
   audit: auditLogFile
 };
 
@@ -252,6 +273,140 @@ function saveIncidents(list) {
     fs.mkdirSync(stateDir, { recursive: true });
     fs.writeFileSync(incidentsFile, JSON.stringify(list, null, 2));
   } catch {}
+}
+
+function defaultModCallsState() {
+  return {
+    cases: [],
+    shifts: {},
+    stats: {
+      created: 0,
+      claimed: 0,
+      closed: 0,
+      escalated: 0,
+      falseReports: 0
+    }
+  };
+}
+
+function loadModCallsState() {
+  try {
+    if (!fs.existsSync(modCallsFile)) return defaultModCallsState();
+    const parsed = JSON.parse(fs.readFileSync(modCallsFile, "utf-8"));
+    return {
+      ...defaultModCallsState(),
+      ...parsed,
+      cases: Array.isArray(parsed?.cases) ? parsed.cases : [],
+      shifts: parsed?.shifts && typeof parsed.shifts === "object" ? parsed.shifts : {},
+      stats: parsed?.stats && typeof parsed.stats === "object" ? { ...defaultModCallsState().stats, ...parsed.stats } : defaultModCallsState().stats
+    };
+  } catch {
+    return defaultModCallsState();
+  }
+}
+
+function saveModCallsState(data) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(modCallsFile, JSON.stringify(data, null, 2));
+  } catch {}
+}
+
+function getOpenModCaseById(data, id) {
+  return data.cases.find((x) => x.id === id && x.status !== "closed" && x.status !== "cancelled");
+}
+
+function hasTrustedRole(member) {
+  if (!member) return false;
+  if (!trustedRoleIds.length) return false;
+  return member.roles.cache.some((r) => trustedRoleIds.includes(r.id));
+}
+
+function addCaseHistoryRow(row, action, actorId, note = "") {
+  row.history = ensureArray(row.history);
+  row.history.push({
+    at: new Date().toISOString(),
+    action,
+    actorId: actorId || "",
+    note: truncate(note, 600)
+  });
+}
+
+function buildModCallSummaryRow(row) {
+  const ageMin = Math.max(0, Math.floor((Date.now() - new Date(row.createdAt || 0).getTime()) / 60000));
+  return `\`${row.id}\` • ${row.priority || "normal"} • ${row.status} • reporter:<@${row.reporterId}>${row.targetUserId ? ` • target:<@${row.targetUserId}>` : ""} • age:${ageMin}m${row.claimedBy ? ` • claimed:<@${row.claimedBy}>` : ""}`;
+}
+
+function shouldThrottleModCall(data, reporterId, sourceChannelId) {
+  const now = Date.now();
+  const recentFromReporter = data.cases.find((x) =>
+    x.reporterId === reporterId &&
+    (now - new Date(x.createdAt || 0).getTime()) < modCallCooldownSeconds * 1000 &&
+    x.status !== "closed" &&
+    x.status !== "cancelled");
+  if (recentFromReporter) return { blocked: true, reason: `cooldown (${modCallCooldownSeconds}s)` };
+
+  const duplicate = data.cases.find((x) =>
+    x.reporterId === reporterId &&
+    x.sourceChannelId === sourceChannelId &&
+    (now - new Date(x.createdAt || 0).getTime()) < 5 * 60 * 1000 &&
+    x.status !== "closed" &&
+    x.status !== "cancelled");
+  if (duplicate) return { blocked: true, reason: `duplicate open case ${duplicate.id}`, existing: duplicate };
+  return { blocked: false };
+}
+
+function isModOnShift(data, userId) {
+  const row = data.shifts?.[userId];
+  return Boolean(row && row.on === true);
+}
+
+function nextEscalationAt(row) {
+  const createdAt = new Date(row.createdAt || 0).getTime();
+  if (!row.lastEscalatedAt) return createdAt + modCallEscalateMinutes * 60 * 1000;
+  return new Date(row.lastEscalatedAt).getTime() + modCallEscalateRepeatMinutes * 60 * 1000;
+}
+
+async function postModCaseContext(thread, row) {
+  if (!thread || !thread.isTextBased()) return;
+  const guild = thread.guild;
+  if (!guild) return;
+
+  const reporter = await guild.members.fetch(row.reporterId).catch(() => null);
+  const target = row.targetUserId ? await guild.members.fetch(row.targetUserId).catch(() => null) : null;
+  const sourceChannel = row.sourceChannelId ? await guild.channels.fetch(row.sourceChannelId).catch(() => null) : null;
+  const incidents = loadIncidents().filter((x) => x.userId === row.reporterId || (row.targetUserId && x.userId === row.targetUserId)).slice(0, 5);
+
+  const lines = [
+    `Case: \`${row.id}\``,
+    `Reporter: <@${row.reporterId}> (${reporter?.user?.tag || "unknown"})`,
+    `Reporter Account Age: ${reporter?.user?.createdAt ? Math.floor((Date.now() - reporter.user.createdAt.getTime()) / (24 * 60 * 60 * 1000)) : "unknown"} days`,
+    `Reporter Roles: ${reporter ? reporter.roles.cache.filter((r) => r.id !== guild.id).map((r) => r.name).slice(0, 8).join(", ") || "none" : "unknown"}`,
+    `Target: ${row.targetUserId ? `<@${row.targetUserId}> (${target?.user?.tag || "unknown"})` : "none"}`,
+    `Source Channel: ${sourceChannel ? `<#${sourceChannel.id}>` : "unknown"}`,
+    `Priority: ${row.priority}`,
+    `Category: ${row.category || "general"}`,
+    incidents.length ? `Recent Incidents:\n${incidents.map((x) => `- ${x.id} ${x.severity} ${x.status}: ${truncate(x.reason, 120)}`).join("\n")}` : "Recent Incidents: none"
+  ];
+  await sendMessageWithGuards(thread, { content: lines.join("\n") }, "modcall.context");
+
+  if (sourceChannel && sourceChannel.isTextBased()) {
+    const recent = await sourceChannel.messages.fetch({ limit: 10 }).catch(() => null);
+    if (recent && recent.size) {
+      const context = recent
+        .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+        .map((m) => `[${new Date(m.createdTimestamp).toISOString()}] ${m.author?.tag || "unknown"}: ${truncate(m.content || "(attachment)", 160)}`)
+        .join("\n");
+      await sendMessageWithGuards(thread, { content: `Recent Channel Context:\n${truncate(context, 1900)}` }, "modcall.context");
+    }
+  }
+}
+
+async function notifyReporterUpdate(clientRef, row, message) {
+  if (!row?.reporterId) return;
+  const reporter = await clientRef.users.fetch(row.reporterId).catch(() => null);
+  if (!reporter) return;
+  await reporter.send(`Case \`${row.id}\`: ${truncate(message, 1500)}`).catch(() => {});
 }
 
 function addIncident(record) {
@@ -582,6 +737,8 @@ function startMetricsServer() {
 
     const jobs = loadJobs();
     const pendingJobs = jobs.filter((x) => x.status === "pending").length;
+    const modState = loadModCallsState();
+    const openModCases = modState.cases.filter((x) => x.status !== "closed" && x.status !== "cancelled").length;
     const lines = [
       "# HELP gh_bot_uptime_seconds Bot uptime in seconds.",
       "# TYPE gh_bot_uptime_seconds gauge",
@@ -618,7 +775,19 @@ function startMetricsServer() {
       `gh_bot_queue_pending ${pendingJobs}`,
       "# HELP gh_bot_abuse_blocked_total Command requests blocked by abuse shields.",
       "# TYPE gh_bot_abuse_blocked_total counter",
-      `gh_bot_abuse_blocked_total ${metrics.abuseBlocked}`
+      `gh_bot_abuse_blocked_total ${metrics.abuseBlocked}`,
+      "# HELP gh_bot_modcalls_created_total Total moderator calls created.",
+      "# TYPE gh_bot_modcalls_created_total counter",
+      `gh_bot_modcalls_created_total ${metrics.modCallsCreated}`,
+      "# HELP gh_bot_modcalls_claimed_total Total moderator calls claimed.",
+      "# TYPE gh_bot_modcalls_claimed_total counter",
+      `gh_bot_modcalls_claimed_total ${metrics.modCallsClaimed}`,
+      "# HELP gh_bot_modcalls_closed_total Total moderator calls closed.",
+      "# TYPE gh_bot_modcalls_closed_total counter",
+      `gh_bot_modcalls_closed_total ${metrics.modCallsClosed}`,
+      "# HELP gh_bot_modcalls_open Number of open moderator calls.",
+      "# TYPE gh_bot_modcalls_open gauge",
+      `gh_bot_modcalls_open ${openModCases}`
     ];
     for (const [commandName, count] of Object.entries(metrics.byCommand)) {
       lines.push(`gh_bot_command_by_name_total{command="${commandName}"} ${count}`);
@@ -970,7 +1139,8 @@ function summarizeMetrics() {
     `API Calls: ${metrics.apiCalls} (${metrics.apiErrors} errors)`,
     `Scheduler: ${metrics.schedulerRuns} runs (${metrics.schedulerErrors} errors)`,
     `Queue: ${metrics.queueProcessed} processed, ${pendingJobs} pending, ${metrics.queueFailed} failed`,
-    `Abuse Blocks: ${metrics.abuseBlocked}`
+    `Abuse Blocks: ${metrics.abuseBlocked}`,
+    `Mod Calls: ${metrics.modCallsCreated} created, ${metrics.modCallsClaimed} claimed, ${metrics.modCallsClosed} closed`
   ].join("\n");
 }
 
@@ -1179,15 +1349,203 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ content: "Buttons only work in server channels.", ephemeral: true });
       return;
     }
-    if (!interaction.customId.startsWith("onboard:")) return;
-    const type = interaction.customId.split(":")[1];
     const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
     if (!member) {
       await interaction.reply({ content: "Unable to load your member profile.", ephemeral: true });
       return;
     }
-    const result = await toggleOptInRole(member, type);
-    await interaction.reply({ content: result.message, ephemeral: true });
+
+    if (interaction.customId.startsWith("onboard:")) {
+      const type = interaction.customId.split(":")[1];
+      const result = await toggleOptInRole(member, type);
+      await interaction.reply({ content: result.message, ephemeral: true });
+      return;
+    }
+
+    if (interaction.customId === "modcall:create") {
+      const data = loadModCallsState();
+      const throttle = shouldThrottleModCall(data, interaction.user.id, interaction.channelId || "");
+      if (throttle.blocked) {
+        await interaction.reply({ content: throttle.existing ? `You already have an active mod call: \`${throttle.existing.id}\`` : `Mod call blocked by ${throttle.reason}.`, ephemeral: true });
+        return;
+      }
+
+      const id = makeId("mod");
+      const trusted = hasTrustedRole(member);
+      const priority = trusted ? "high" : "normal";
+      const parent = modCallChannelId
+        ? await interaction.guild.channels.fetch(modCallChannelId).catch(() => null)
+        : interaction.channel;
+      if (!parent || !parent.isTextBased()) {
+        await interaction.reply({ content: "Mod call channel is not configured correctly.", ephemeral: true });
+        return;
+      }
+
+      const onShiftMentions = Object.entries(data.shifts || {}).filter(([, row]) => row?.on).map(([id]) => `<@${id}>`);
+      const mention = onShiftMentions.length
+        ? onShiftMentions.join(" ")
+        : (modCallRoleId ? `<@&${modCallRoleId}>` : "Moderators");
+      const seed = await sendMessageWithGuards(parent, {
+        content: `🚨 ${mention} new live mod call \`${id}\` from <@${interaction.user.id}> in <#${interaction.channelId}>`
+      }, "modcall.button.create");
+      if (!seed) {
+        await interaction.reply({ content: "Mod call suppressed due to staging/dry-run mode.", ephemeral: true });
+        return;
+      }
+
+      const thread = await seed.startThread({
+        name: `modcall-${interaction.user.username}-${Date.now().toString(36)}`.slice(0, 95),
+        autoArchiveDuration: 1440,
+        reason: `Mod call by ${interaction.user.tag}`
+      }).catch(() => null);
+      if (!thread) {
+        await interaction.reply({ content: "Unable to start case thread. Check bot permissions.", ephemeral: true });
+        return;
+      }
+
+      const row = {
+        id,
+        source: "button",
+        reporterId: interaction.user.id,
+        targetUserId: "",
+        sourceChannelId: interaction.channelId || "",
+        threadId: thread.id,
+        status: "open",
+        category: "live-call",
+        priority,
+        createdAt: new Date().toISOString(),
+        claimedBy: "",
+        claimedAt: "",
+        closedAt: "",
+        closedBy: "",
+        closeReason: "",
+        escalationCount: 0,
+        lastEscalatedAt: "",
+        reporterFlags: 0,
+        evidence: [],
+        history: []
+      };
+      addCaseHistoryRow(row, "created", interaction.user.id, "Created from live call button");
+      data.cases.unshift(row);
+      data.stats.created += 1;
+      metrics.modCallsCreated += 1;
+      saveModCallsState(data);
+
+      const controls = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`modact:claim:${id}`).setLabel("Claim").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`modact:close:${id}`).setLabel("Close").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`modact:warn:${id}`).setLabel("Warn").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`modact:timeout:${id}`).setLabel("Timeout 10m").setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`modact:quarantine:${id}`).setLabel("Quarantine").setStyle(ButtonStyle.Danger)
+      );
+      const controls2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`modact:slowmode:${id}`).setLabel("Slowmode 30s").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`modact:lock:${id}`).setLabel("Lock Source").setStyle(ButtonStyle.Secondary)
+      );
+      await sendMessageWithGuards(thread, { content: `Case \`${id}\` opened. Reporter: <@${interaction.user.id}>`, components: [controls, controls2] }, "modcall.button.controls");
+      await postModCaseContext(thread, row);
+      await interaction.reply({ content: `Moderator call created: ${thread.toString()} (\`${id}\`)`, ephemeral: true });
+      return;
+    }
+
+    if (interaction.customId.startsWith("modact:")) {
+      const [, action, caseId] = interaction.customId.split(":");
+      const isStaff = isStaffMember(interaction, member);
+      if (!isStaff) {
+        await interaction.reply({ content: "Only staff can use moderation action buttons.", ephemeral: true });
+        return;
+      }
+      const data = loadModCallsState();
+      const row = data.cases.find((x) => x.id === caseId);
+      if (!row) {
+        await interaction.reply({ content: "Case not found.", ephemeral: true });
+        return;
+      }
+
+      if (action === "claim") {
+        if (!row.claimedBy) {
+          row.claimedBy = interaction.user.id;
+          row.claimedAt = new Date().toISOString();
+          row.status = "claimed";
+          addCaseHistoryRow(row, "claimed", interaction.user.id, "Claimed via button");
+          data.stats.claimed += 1;
+          metrics.modCallsClaimed += 1;
+          saveModCallsState(data);
+        }
+        await notifyReporterUpdate(interaction.client, row, `Your case has been claimed by <@${row.claimedBy}>.`);
+        await interaction.reply({ content: `Case \`${caseId}\` claimed by <@${row.claimedBy}>.`, ephemeral: true });
+        return;
+      }
+
+      if (action === "close") {
+        row.status = "closed";
+        row.closedAt = new Date().toISOString();
+        row.closedBy = interaction.user.id;
+        row.closeReason = row.closeReason || "Closed via quick action.";
+        addCaseHistoryRow(row, "closed", interaction.user.id, row.closeReason);
+        data.stats.closed += 1;
+        metrics.modCallsClosed += 1;
+        saveModCallsState(data);
+        await notifyReporterUpdate(interaction.client, row, `Your case has been closed. Reason: ${row.closeReason}`);
+        await interaction.reply({ content: `Case \`${caseId}\` closed.`, ephemeral: true });
+        return;
+      }
+
+      const targetId = row.targetUserId || row.reporterId;
+      const targetMember = targetId ? await interaction.guild.members.fetch(targetId).catch(() => null) : null;
+      const sourceChannel = row.sourceChannelId ? await interaction.guild.channels.fetch(row.sourceChannelId).catch(() => null) : null;
+
+      if (action === "warn") {
+        await sendMessageWithGuards(interaction.channel, { content: `⚠️ Warning issued to <@${targetId}> for case \`${caseId}\`.` }, "modcall.button.warn");
+        addCaseHistoryRow(row, "warn", interaction.user.id, `Warned ${targetId}`);
+        saveModCallsState(data);
+        await interaction.reply({ content: "Warning posted.", ephemeral: true });
+        return;
+      }
+
+      if (action === "timeout") {
+        if (!targetMember || !targetMember.moderatable) {
+          await interaction.reply({ content: "Target cannot be timed out by bot.", ephemeral: true });
+          return;
+        }
+        await targetMember.timeout(10 * 60 * 1000, `Case ${caseId} quick action by ${interaction.user.tag}`).catch(() => null);
+        addCaseHistoryRow(row, "timeout", interaction.user.id, `Timeout 10m for ${targetId}`);
+        saveModCallsState(data);
+        await interaction.reply({ content: "Timeout applied (10m).", ephemeral: true });
+        return;
+      }
+
+      if (!sourceChannel || !sourceChannel.isTextBased()) {
+        await interaction.reply({ content: "Source channel unavailable for this action.", ephemeral: true });
+        return;
+      }
+
+      if (action === "slowmode") {
+        await sourceChannel.setRateLimitPerUser(30, `Case ${caseId} quick action by ${interaction.user.tag}`).catch(() => null);
+        addCaseHistoryRow(row, "slowmode", interaction.user.id, `Set 30s in #${sourceChannel.id}`);
+        saveModCallsState(data);
+        await interaction.reply({ content: "Source channel slowmode set to 30s.", ephemeral: true });
+        return;
+      }
+      if (action === "lock") {
+        await sourceChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { SendMessages: false }, { reason: `Case ${caseId} lock by ${interaction.user.tag}` }).catch(() => null);
+        addCaseHistoryRow(row, "lock", interaction.user.id, `Locked #${sourceChannel.id}`);
+        saveModCallsState(data);
+        await interaction.reply({ content: "Source channel locked.", ephemeral: true });
+        return;
+      }
+      if (action === "quarantine") {
+        if (!targetId) {
+          await interaction.reply({ content: "No target user on this case.", ephemeral: true });
+          return;
+        }
+        await sourceChannel.permissionOverwrites.edit(targetId, { SendMessages: false }, { reason: `Case ${caseId} quarantine by ${interaction.user.tag}` }).catch(() => null);
+        addCaseHistoryRow(row, "quarantine", interaction.user.id, `Quarantined ${targetId} in #${sourceChannel.id}`);
+        saveModCallsState(data);
+        await interaction.reply({ content: "Target quarantined in source channel.", ephemeral: true });
+        return;
+      }
+    }
     return;
   }
 
@@ -1258,7 +1616,7 @@ client.on("interactionCreate", async (interaction) => {
           "/rules, /join, /links, /lore, /moddiff",
           "/poll, /event, /ticket",
           "/purge, /slowmode, /lock, /unlock",
-          "/audit, /incident, /backup, /ops",
+          "/audit, /incident, /backup, /ops, /modcall, /mod",
           "/health, /metrics, /announce, /reminder, /activity, /roll"
         ].join("\n"),
         ephemeral: true
@@ -1881,6 +2239,356 @@ client.on("interactionCreate", async (interaction) => {
       });
       await interaction.reply(`Raid mode ${community.raidMode ? "enabled" : "disabled"}.`);
       return;
+    }
+
+    if (interaction.commandName === "modcall") {
+      const sub = interaction.options.getSubcommand();
+
+      if (sub === "setup") {
+        const staff = await requireStaff(interaction, "modcall");
+        if (!staff) return;
+        const panel = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId("modcall:create").setLabel("Call a Moderator").setStyle(ButtonStyle.Danger)
+        );
+        await sendMessageWithGuards(interaction.channel, {
+          content: "Need a moderator right now? Press the button below to open a live mod case.",
+          components: [panel]
+        }, "modcall.setup", reqId);
+        await interaction.reply({ content: "Mod call panel posted.", ephemeral: true });
+        return;
+      }
+
+      if (sub === "create") {
+        if (!interaction.inGuild() || !interaction.guild) {
+          await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+          return;
+        }
+        const data = loadModCallsState();
+        const throttle = shouldThrottleModCall(data, interaction.user.id, interaction.channelId || "");
+        if (throttle.blocked) {
+          await interaction.reply({ content: throttle.existing ? `You already have an active mod call: \`${throttle.existing.id}\`` : `Mod call blocked by ${throttle.reason}.`, ephemeral: true });
+          return;
+        }
+
+        const severity = interaction.options.getString("severity") || "medium";
+        const category = interaction.options.getString("category") || "general";
+        const details = interaction.options.getString("details") || "";
+        const target = interaction.options.getUser("target");
+        const attachment = interaction.options.getAttachment("attachment");
+        const id = makeId("mod");
+        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+        const priority = member && hasTrustedRole(member) ? "high" : (severity === "critical" ? "critical" : "normal");
+
+        const parent = modCallChannelId
+          ? await interaction.guild.channels.fetch(modCallChannelId).catch(() => null)
+          : interaction.channel;
+        if (!parent || !parent.isTextBased()) {
+          await interaction.reply({ content: "Mod call channel is not configured correctly.", ephemeral: true });
+          return;
+        }
+
+        const onShiftMentions = Object.entries(data.shifts || {}).filter(([, row]) => row?.on).map(([id]) => `<@${id}>`);
+        const mention = onShiftMentions.length
+          ? onShiftMentions.join(" ")
+          : (modCallRoleId ? `<@&${modCallRoleId}>` : "Moderators");
+        const seed = await sendMessageWithGuards(parent, {
+          content: `🚨 ${mention} mod call \`${id}\` (${priority}) from <@${interaction.user.id}>${target ? ` • target <@${target.id}>` : ""}\nCategory: ${category}\nSeverity: ${severity}\n${truncate(details, 700)}`
+        }, "modcall.create", reqId);
+        if (!seed) {
+          await interaction.reply({ content: "Mod call suppressed due to staging/dry-run mode.", ephemeral: true });
+          return;
+        }
+        const thread = await seed.startThread({
+          name: `modcall-${interaction.user.username}-${Date.now().toString(36)}`.slice(0, 95),
+          autoArchiveDuration: 1440,
+          reason: `Mod call by ${interaction.user.tag}`
+        }).catch(() => null);
+        if (!thread) {
+          await interaction.reply({ content: "Unable to start case thread. Check bot permissions.", ephemeral: true });
+          return;
+        }
+
+        const row = {
+          id,
+          source: "slash",
+          reporterId: interaction.user.id,
+          targetUserId: target?.id || "",
+          sourceChannelId: interaction.channelId || "",
+          threadId: thread.id,
+          status: "open",
+          category,
+          severity,
+          priority,
+          details: truncate(details, 1200),
+          createdAt: new Date().toISOString(),
+          claimedBy: "",
+          claimedAt: "",
+          closedAt: "",
+          closedBy: "",
+          closeReason: "",
+          escalationCount: 0,
+          lastEscalatedAt: "",
+          reporterFlags: 0,
+          evidence: [],
+          history: []
+        };
+        if (attachment) {
+          row.evidence.push({
+            at: new Date().toISOString(),
+            by: interaction.user.id,
+            type: "attachment",
+            name: attachment.name || "",
+            url: attachment.url || "",
+            size: attachment.size || 0,
+            contentType: attachment.contentType || ""
+          });
+        }
+        addCaseHistoryRow(row, "created", interaction.user.id, "Created via /modcall create");
+        data.cases.unshift(row);
+        data.stats.created += 1;
+        metrics.modCallsCreated += 1;
+        saveModCallsState(data);
+
+        const controls = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`modact:claim:${id}`).setLabel("Claim").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`modact:close:${id}`).setLabel("Close").setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`modact:warn:${id}`).setLabel("Warn").setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId(`modact:timeout:${id}`).setLabel("Timeout 10m").setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId(`modact:quarantine:${id}`).setLabel("Quarantine").setStyle(ButtonStyle.Danger)
+        );
+        const controls2 = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`modact:slowmode:${id}`).setLabel("Slowmode 30s").setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId(`modact:lock:${id}`).setLabel("Lock Source").setStyle(ButtonStyle.Secondary)
+        );
+        await sendMessageWithGuards(thread, { content: `Case \`${id}\` opened by <@${interaction.user.id}>`, components: [controls, controls2] }, "modcall.controls", reqId);
+        await postModCaseContext(thread, row);
+        await interaction.reply({ content: `Mod case created: ${thread.toString()} (\`${id}\`)`, ephemeral: true });
+        return;
+      }
+
+      const staff = await requireStaff(interaction, "modcall");
+      if (!staff) {
+        auditStatus = "denied";
+        return;
+      }
+      const data = loadModCallsState();
+
+      if (sub === "list") {
+        const openOnly = interaction.options.getBoolean("open_only");
+        let rows = data.cases.slice();
+        if (openOnly !== false) {
+          rows = rows.filter((x) => x.status !== "closed" && x.status !== "cancelled");
+        }
+        rows = rows
+          .sort((a, b) => {
+            const pa = a.priority === "critical" ? 3 : a.priority === "high" ? 2 : 1;
+            const pb = b.priority === "critical" ? 3 : b.priority === "high" ? 2 : 1;
+            if (pa !== pb) return pb - pa;
+            return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+          })
+          .slice(0, 25);
+        if (!rows.length) {
+          await interaction.reply({ content: "No mod calls found.", ephemeral: true });
+          return;
+        }
+        await interaction.reply({ content: truncate(rows.map(buildModCallSummaryRow).join("\n"), 1900), ephemeral: true });
+        return;
+      }
+
+      if (sub === "claim") {
+        const id = interaction.options.getString("id", true);
+        const row = getOpenModCaseById(data, id);
+        if (!row) {
+          await interaction.reply({ content: "Open case not found.", ephemeral: true });
+          return;
+        }
+        if (!row.claimedBy) {
+          row.claimedBy = interaction.user.id;
+          row.claimedAt = new Date().toISOString();
+          row.status = "claimed";
+          addCaseHistoryRow(row, "claimed", interaction.user.id, "Claimed via /modcall claim");
+          data.stats.claimed += 1;
+          metrics.modCallsClaimed += 1;
+          const responseMs = new Date(row.claimedAt).getTime() - new Date(row.createdAt || 0).getTime();
+          row.firstResponseMs = responseMs;
+        }
+        saveModCallsState(data);
+        const thread = row.threadId ? await interaction.guild.channels.fetch(row.threadId).catch(() => null) : null;
+        if (thread && thread.isTextBased()) {
+          await sendMessageWithGuards(thread, { content: `👮 Case claimed by <@${interaction.user.id}>.` }, "modcall.claim", reqId);
+        }
+        await notifyReporterUpdate(interaction.client, row, `Your case is now claimed by <@${interaction.user.id}>.`);
+        await interaction.reply({ content: `Case \`${id}\` claimed.`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "transfer") {
+        const id = interaction.options.getString("id", true);
+        const toUser = interaction.options.getUser("to", true);
+        const row = getOpenModCaseById(data, id);
+        if (!row) {
+          await interaction.reply({ content: "Open case not found.", ephemeral: true });
+          return;
+        }
+        row.claimedBy = toUser.id;
+        row.claimedAt = row.claimedAt || new Date().toISOString();
+        row.status = "claimed";
+        addCaseHistoryRow(row, "transferred", interaction.user.id, `Transferred to ${toUser.id}`);
+        saveModCallsState(data);
+        const thread = row.threadId ? await interaction.guild.channels.fetch(row.threadId).catch(() => null) : null;
+        if (thread && thread.isTextBased()) {
+          await sendMessageWithGuards(thread, { content: `🔁 Case transferred to <@${toUser.id}> by <@${interaction.user.id}>.` }, "modcall.transfer", reqId);
+        }
+        await notifyReporterUpdate(interaction.client, row, `Your case has been transferred to <@${toUser.id}>.`);
+        await interaction.reply({ content: `Case \`${id}\` transferred to <@${toUser.id}>.`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "close") {
+        const id = interaction.options.getString("id", true);
+        const reason = interaction.options.getString("reason") || "Resolved by moderator.";
+        const row = data.cases.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: "Case not found.", ephemeral: true });
+          return;
+        }
+        row.status = "closed";
+        row.closedAt = new Date().toISOString();
+        row.closedBy = interaction.user.id;
+        row.closeReason = truncate(reason, 600);
+        addCaseHistoryRow(row, "closed", interaction.user.id, row.closeReason);
+        if (row.createdAt) {
+          row.resolutionMs = Math.max(0, new Date(row.closedAt).getTime() - new Date(row.createdAt).getTime());
+        }
+        data.stats.closed += 1;
+        metrics.modCallsClosed += 1;
+        saveModCallsState(data);
+        const thread = row.threadId ? await interaction.guild.channels.fetch(row.threadId).catch(() => null) : null;
+        if (thread && thread.isTextBased()) {
+          await sendMessageWithGuards(thread, { content: `✅ Case closed by <@${interaction.user.id}>. Reason: ${row.closeReason}` }, "modcall.close", reqId);
+        }
+        await notifyReporterUpdate(interaction.client, row, `Your case has been closed. Reason: ${row.closeReason}`);
+        await interaction.reply({ content: `Case \`${id}\` closed.`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "status") {
+        const id = interaction.options.getString("id", true);
+        const message = interaction.options.getString("message", true);
+        const row = data.cases.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: "Case not found.", ephemeral: true });
+          return;
+        }
+        addCaseHistoryRow(row, "status-update", interaction.user.id, message);
+        saveModCallsState(data);
+        const thread = row.threadId ? await interaction.guild.channels.fetch(row.threadId).catch(() => null) : null;
+        if (thread && thread.isTextBased()) {
+          await sendMessageWithGuards(thread, { content: `📣 Status update from <@${interaction.user.id}>: ${truncate(message, 1200)}` }, "modcall.status", reqId);
+        }
+        await notifyReporterUpdate(interaction.client, row, `Update: ${message}`);
+        await interaction.reply({ content: "Status update sent.", ephemeral: true });
+        return;
+      }
+
+      if (sub === "evidence") {
+        const id = interaction.options.getString("id", true);
+        const note = interaction.options.getString("note") || "";
+        const url = interaction.options.getString("url") || "";
+        const attachment = interaction.options.getAttachment("attachment");
+        const row = data.cases.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: "Case not found.", ephemeral: true });
+          return;
+        }
+        const evidence = {
+          at: new Date().toISOString(),
+          by: interaction.user.id,
+          type: attachment ? "attachment" : "link",
+          note: truncate(note, 500),
+          url: attachment?.url || url || "",
+          name: attachment?.name || ""
+        };
+        row.evidence = ensureArray(row.evidence);
+        row.evidence.push(evidence);
+        addCaseHistoryRow(row, "evidence", interaction.user.id, evidence.url || evidence.note);
+        saveModCallsState(data);
+        const thread = row.threadId ? await interaction.guild.channels.fetch(row.threadId).catch(() => null) : null;
+        if (thread && thread.isTextBased()) {
+          await sendMessageWithGuards(thread, { content: `🧾 Evidence added by <@${interaction.user.id}>: ${evidence.url || evidence.note || "attachment"}` }, "modcall.evidence", reqId);
+        }
+        await interaction.reply({ content: "Evidence captured.", ephemeral: true });
+        return;
+      }
+
+      if (sub === "flag") {
+        const id = interaction.options.getString("id", true);
+        const reason = interaction.options.getString("reason") || "False report";
+        const row = data.cases.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: "Case not found.", ephemeral: true });
+          return;
+        }
+        row.reporterFlags = Number(row.reporterFlags || 0) + 1;
+        addCaseHistoryRow(row, "flagged", interaction.user.id, reason);
+        data.stats.falseReports += 1;
+        saveModCallsState(data);
+        await interaction.reply({ content: `Reporter on \`${id}\` flagged (${row.reporterFlags} total flags).`, ephemeral: true });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "mod") {
+      const staff = await requireStaff(interaction, "mod");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      const data = loadModCallsState();
+
+      if (sub === "shift") {
+        const stateValue = interaction.options.getString("state", true);
+        const on = stateValue === "on";
+        data.shifts[interaction.user.id] = {
+          on,
+          updatedAt: new Date().toISOString()
+        };
+        saveModCallsState(data);
+        await interaction.reply({ content: `Shift ${on ? "enabled" : "disabled"} for <@${interaction.user.id}>.`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "coverage") {
+        const onShiftIds = Object.entries(data.shifts).filter(([, v]) => v?.on).map(([id]) => id);
+        const openCases = data.cases.filter((x) => x.status !== "closed" && x.status !== "cancelled").length;
+        const lines = [
+          `On-shift moderators: ${onShiftIds.length}`,
+          onShiftIds.length ? onShiftIds.map((id) => `- <@${id}>`).join("\n") : "- none",
+          `Open cases: ${openCases}`
+        ];
+        await interaction.reply({ content: lines.join("\n"), ephemeral: true });
+        return;
+      }
+
+      if (sub === "metrics") {
+        const weekCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        const weekly = data.cases.filter((x) => new Date(x.createdAt || 0).getTime() >= weekCutoff);
+        const closed = weekly.filter((x) => x.status === "closed");
+        const avgResponse = closed.filter((x) => Number.isFinite(x.firstResponseMs)).map((x) => x.firstResponseMs);
+        const avgResolution = closed.filter((x) => Number.isFinite(x.resolutionMs)).map((x) => x.resolutionMs);
+        const mean = (arr) => arr.length ? Math.floor(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+        const reopenCount = weekly.filter((x) => ensureArray(x.history).some((h) => h.action === "reopened")).length;
+
+        const lines = [
+          `Weekly cases: ${weekly.length}`,
+          `Weekly closed: ${closed.length}`,
+          `Avg first response: ${Math.floor(mean(avgResponse) / 1000)}s`,
+          `Avg resolution: ${Math.floor(mean(avgResolution) / 60000)}m`,
+          `Reopened: ${reopenCount}`,
+          `False-report flags: ${data.stats.falseReports || 0}`,
+          `Escalations: ${data.stats.escalated || 0}`
+        ];
+        await interaction.reply({ content: lines.join("\n"), ephemeral: true });
+        return;
+      }
     }
 
     if (interaction.commandName === "audit") {
@@ -2973,6 +3681,107 @@ async function runRetentionMaintenance() {
     saveIncidents(keptIncidents);
     logEvent("info", "retention.incidents.pruned", { removed: incidents.length - keptIncidents.length });
   }
+
+  const modState = loadModCallsState();
+  const modCutoff = Date.now() - incidentRetentionDays * 24 * 60 * 60 * 1000;
+  const beforeModCases = modState.cases.length;
+  const keptCases = modState.cases.filter((row) => {
+    const ts = new Date(row.createdAt || 0).getTime();
+    if (!Number.isFinite(ts) || ts < modCutoff) {
+      return row.status !== "closed" && row.status !== "cancelled";
+    }
+    return true;
+  });
+  if (keptCases.length !== modState.cases.length) {
+    modState.cases = keptCases;
+    saveModCallsState(modState);
+    logEvent("info", "retention.modcalls.pruned", { removed: beforeModCases - keptCases.length });
+  }
+}
+
+async function runModCallEscalations() {
+  bumpMetric("schedulerRun");
+  const data = loadModCallsState();
+  const now = Date.now();
+  const openRows = data.cases.filter((x) => x.status !== "closed" && x.status !== "cancelled");
+  if (!openRows.length) return;
+
+  const onShiftMentions = Object.entries(data.shifts || {})
+    .filter(([, row]) => row?.on)
+    .map(([id]) => `<@${id}>`);
+
+  for (const row of openRows) {
+    if (row.claimedBy) continue;
+    const nextAt = nextEscalationAt(row);
+    if (now < nextAt) continue;
+
+    row.escalationCount = Number(row.escalationCount || 0) + 1;
+    row.lastEscalatedAt = new Date().toISOString();
+    addCaseHistoryRow(row, "escalated", "", `Escalation #${row.escalationCount}`);
+    data.stats.escalated += 1;
+
+    const mention = row.escalationCount > 1 && seniorModRoleId
+      ? `<@&${seniorModRoleId}>`
+      : (onShiftMentions.length ? onShiftMentions.join(" ") : (modCallRoleId ? `<@&${modCallRoleId}>` : "Moderators"));
+    const text = `⏱️ Unclaimed mod case \`${row.id}\` needs response (${row.escalationCount} escalation${row.escalationCount === 1 ? "" : "s"}). ${mention}`;
+
+    if (row.threadId) {
+      const thread = await client.channels.fetch(row.threadId).catch(() => null);
+      if (thread && thread.isTextBased()) {
+        await sendMessageWithGuards(thread, { content: text }, "modcall.escalation");
+      }
+    }
+    await sendOpsAlert("modcall-escalation", `Case ${row.id} escalated (${row.escalationCount}).`);
+    await notifyReporterUpdate(client, row, "Your case has been escalated for faster moderator response.");
+  }
+
+  saveModCallsState(data);
+}
+
+async function runModWeeklyDigest() {
+  bumpMetric("schedulerRun");
+  if (!alertChannelId) return;
+  const now = new Date();
+  if (now.getUTCDay() !== modCallDigestWeekdayUtc) return;
+  if (now.getUTCHours() !== modCallDigestHourUtc || now.getUTCMinutes() !== 0) return;
+
+  const state = loadState();
+  const weekKey = `${now.getUTCFullYear()}-${Math.floor(now.getTime() / (7 * 24 * 60 * 60 * 1000))}`;
+  if (state.lastModWeeklyDigest === weekKey) return;
+
+  const data = loadModCallsState();
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const weekly = data.cases.filter((x) => new Date(x.createdAt || 0).getTime() >= cutoff);
+  const closed = weekly.filter((x) => x.status === "closed");
+  const mean = (arr) => arr.length ? Math.floor(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+  const avgResponse = mean(closed.filter((x) => Number.isFinite(x.firstResponseMs)).map((x) => x.firstResponseMs));
+  const avgResolution = mean(closed.filter((x) => Number.isFinite(x.resolutionMs)).map((x) => x.resolutionMs));
+  const byMod = {};
+  for (const row of closed) {
+    if (!row.closedBy) continue;
+    byMod[row.closedBy] = (byMod[row.closedBy] || 0) + 1;
+  }
+  const topMods = Object.entries(byMod).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, n]) => `<@${id}>:${n}`).join(", ") || "none";
+
+  enqueueJob({
+    type: "mod-weekly-digest",
+    channelId: alertChannelId,
+    idempotencyKey: `mod-weekly-digest:${weekKey}`,
+    content: [
+      "📊 **Weekly Moderator Digest**",
+      `Cases created: ${weekly.length}`,
+      `Cases closed: ${closed.length}`,
+      `Avg first response: ${Math.floor(avgResponse / 1000)}s`,
+      `Avg resolution: ${Math.floor(avgResolution / 60000)}m`,
+      `Escalations: ${data.stats.escalated || 0}`,
+      `False-report flags: ${data.stats.falseReports || 0}`,
+      `Top closers: ${topMods}`
+    ].join("\n"),
+    maxRetries: 6
+  });
+
+  state.lastModWeeklyDigest = weekKey;
+  saveState(state);
 }
 
 async function runOpsWatchdog() {
@@ -3031,6 +3840,7 @@ function startSchedulers() {
   safeScheduler(postLatestTransmission);
   safeScheduler(postModsChange);
   safeScheduler(postActivityLog);
+  safeScheduler(runModCallEscalations);
   safeScheduler(runOpsWatchdog);
 
   setInterval(() => safeScheduler(postStatusUpdate), intervalMs(autoStatusMinutes));
@@ -3044,6 +3854,8 @@ function startSchedulers() {
   setInterval(() => safeScheduler(runCommunityMaintenance), 5 * 60 * 1000);
   setInterval(() => safeScheduler(runBackupMaintenance), 60 * 60 * 1000);
   setInterval(() => safeScheduler(runRetentionMaintenance), 60 * 60 * 1000);
+  setInterval(() => safeScheduler(runModCallEscalations), 60 * 1000);
+  setInterval(() => safeScheduler(runModWeeklyDigest), 60 * 1000);
   setInterval(() => safeScheduler(runOpsWatchdog), 60 * 1000);
 }
 
