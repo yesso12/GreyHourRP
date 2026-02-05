@@ -25,6 +25,128 @@ const commands = [
   new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
   new SlashCommandBuilder().setName("help").setDescription("Show bot commands"),
   new SlashCommandBuilder()
+    .setName("oncall")
+    .setDescription("On-call rota management")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub.setName("add")
+        .setDescription("Add an on-call staff member")
+        .addUserOption((opt) => opt.setName("user").setDescription("Staff user").setRequired(true))
+        .addStringOption((opt) => opt.setName("timezone").setDescription("Timezone label (e.g. UTC, EST)").setRequired(false))
+    )
+    .addSubcommand((sub) => sub.setName("list").setDescription("List on-call rota"))
+    .addSubcommand((sub) =>
+      sub.setName("remove")
+        .setDescription("Remove from on-call rota")
+        .addUserOption((opt) => opt.setName("user").setDescription("Staff user").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("ping")
+        .setDescription("Ping current on-call and fallback")
+        .addStringOption((opt) => opt.setName("issue").setDescription("Issue summary").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("sla")
+    .setDescription("SLA tracking tools")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) => sub.setName("board").setDescription("Show current SLA board")),
+  new SlashCommandBuilder()
+    .setName("summarize")
+    .setDescription("AI-assisted moderation summaries")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub.setName("channel")
+        .setDescription("Summarize recent channel activity")
+        .addChannelOption((opt) => opt.setName("channel").setDescription("Target channel").setRequired(false))
+        .addIntegerOption((opt) => opt.setName("minutes").setDescription("Minutes back (5-180)").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("user")
+        .setDescription("Summarize moderation risk for user")
+        .addUserOption((opt) => opt.setName("user").setDescription("Target user").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("safety")
+    .setDescription("Community safety scoring")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub.setName("score")
+        .setDescription("Show safety score for a channel")
+        .addChannelOption((opt) => opt.setName("channel").setDescription("Target channel").setRequired(false))
+    ),
+  new SlashCommandBuilder()
+    .setName("drill")
+    .setDescription("Red-team simulation drills")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub.setName("start")
+        .setDescription("Start a drill scenario")
+        .addStringOption((opt) =>
+          opt.setName("scenario")
+            .setDescription("Drill type")
+            .setRequired(true)
+            .addChoices(
+              { name: "raid", value: "raid" },
+              { name: "harassment", value: "harassment" },
+              { name: "spam", value: "spam" },
+              { name: "incident-response", value: "incident-response" }
+            )
+        )
+    )
+    .addSubcommand((sub) =>
+      sub.setName("score")
+        .setDescription("Score a drill result")
+        .addStringOption((opt) => opt.setName("id").setDescription("Drill id").setRequired(true))
+        .addIntegerOption((opt) => opt.setName("score").setDescription("Score 0-100").setRequired(true))
+        .addStringOption((opt) => opt.setName("notes").setDescription("After-action notes").setRequired(false))
+    )
+    .addSubcommand((sub) => sub.setName("report").setDescription("Show recent drill reports")),
+  new SlashCommandBuilder()
+    .setName("vault")
+    .setDescription("Evidence vault tools")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub.setName("create")
+        .setDescription("Create signed evidence link")
+        .addStringOption((opt) => opt.setName("case_id").setDescription("Case id").setRequired(true))
+        .addIntegerOption((opt) => opt.setName("expires_hours").setDescription("Link expiry hours (1-168)").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("list")
+        .setDescription("List recent evidence links")
+        .addStringOption((opt) => opt.setName("case_id").setDescription("Optional case id").setRequired(false))
+    ),
+  new SlashCommandBuilder()
+    .setName("kb")
+    .setDescription("Knowledge base ingestion/search")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub.setName("ingest")
+        .setDescription("Ingest a knowledge snippet")
+        .addStringOption((opt) => opt.setName("topic").setDescription("Topic").setRequired(true))
+        .addStringOption((opt) => opt.setName("text").setDescription("Knowledge text").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("search")
+        .setDescription("Search ingested knowledge")
+        .addStringOption((opt) => opt.setName("query").setDescription("Query").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("approve")
+    .setDescription("Approve or deny pending high-risk requests")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addStringOption((opt) => opt.setName("request_id").setDescription("Approval request id").setRequired(true))
+    .addStringOption((opt) =>
+      opt.setName("decision")
+        .setDescription("approve or deny")
+        .setRequired(true)
+        .addChoices(
+          { name: "approve", value: "approve" },
+          { name: "deny", value: "deny" }
+        )
+    )
+    .addStringOption((opt) => opt.setName("note").setDescription("Optional note").setRequired(false)),
+  new SlashCommandBuilder()
     .setName("diagnose")
     .setDescription("Diagnose command readiness and permissions")
     .addStringOption((opt) =>
@@ -163,6 +285,20 @@ const commands = [
       sub
         .setName("syncpanel")
         .setDescription("Sync bot operations snapshot to admin panel content")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("disaster")
+        .setDescription("Disaster recovery mode controls")
+        .addStringOption((opt) =>
+          opt.setName("state")
+            .setDescription("on or off")
+            .setRequired(true)
+            .addChoices(
+              { name: "on", value: "on" },
+              { name: "off", value: "off" }
+            )
+        )
     ),
   new SlashCommandBuilder()
     .setName("rolesync")
@@ -420,6 +556,10 @@ const commands = [
         .setDescription("Test whether a user can run a command")
         .addUserOption((opt) => opt.setName("user").setDescription("Target user").setRequired(true))
         .addStringOption((opt) => opt.setName("command").setDescription("Command name without slash").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("suggest")
+        .setDescription("Suggest policy updates from denied/error command patterns")
     ),
   new SlashCommandBuilder()
     .setName("copilot")

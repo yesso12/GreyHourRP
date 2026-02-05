@@ -52,6 +52,7 @@ const modCallDigestWeekdayUtc = Number(process.env.MODCALL_DIGEST_WEEKDAY_UTC ||
 const adminRequireSecondConfirmation = !/^(0|false|no)$/i.test(process.env.ADMIN_REQUIRE_SECOND_CONFIRMATION || "true");
 const raidModeMaxMentions = Number(process.env.RAID_MODE_MAX_MENTIONS || 5);
 const raidModeMinAccountDays = Number(process.env.RAID_MODE_MIN_ACCOUNT_DAYS || 7);
+const voiceRaidMemberThreshold = Number(process.env.VOICE_RAID_MEMBER_THRESHOLD || 12);
 const allowedRoleIds = (process.env.ALLOWED_ROLE_IDS || "").split(",").map(r => r.trim()).filter(Boolean);
 const ownerRoleIds = (process.env.OWNER_ROLE_IDS || "").split(",").map(r => r.trim()).filter(Boolean);
 const ownerUserIds = (process.env.OWNER_USER_IDS || "").split(",").map(r => r.trim()).filter(Boolean);
@@ -155,6 +156,11 @@ const ticketsFile = path.join(stateDir, "tickets.json");
 const userLocalesFile = path.join(stateDir, "user-locales.json");
 const shiftPlansFile = path.join(stateDir, "shift-plans.json");
 const postmortemsFile = path.join(stateDir, "postmortems.json");
+const oncallFile = path.join(stateDir, "oncall.json");
+const drillsFile = path.join(stateDir, "drills.json");
+const vaultLinksFile = path.join(stateDir, "vault-links.json");
+const knowledgeIngestFile = path.join(stateDir, "knowledge-ingest.json");
+const modQueueFile = path.join(stateDir, "mod-queue.json");
 const adminSnapshotsFile = path.join(stateDir, "admin-snapshots.json");
 const auditLogFile = path.join(stateDir, "audit.log.jsonl");
 const jobsFile = path.join(stateDir, "jobs.json");
@@ -220,6 +226,11 @@ const dataFiles = {
   locales: userLocalesFile,
   shiftPlans: shiftPlansFile,
   postmortems: postmortemsFile,
+  oncall: oncallFile,
+  drills: drillsFile,
+  vaultLinks: vaultLinksFile,
+  knowledgeIngest: knowledgeIngestFile,
+  modQueue: modQueueFile,
   modcalls: modCallsFile,
   audit: auditLogFile
 };
@@ -318,6 +329,7 @@ const HELP_CATALOG = [
   { syntax: "/incident postmortem_approve", desc: "Approve a postmortem draft.", staffOnly: true, policyKey: "incident" },
   { syntax: "/incident wizard", desc: "Guided incident response checklist.", staffOnly: true, policyKey: "incident" },
   { syntax: "/audit", desc: "View/export command audit logs.", staffOnly: true, policyKey: "audit" },
+  { syntax: "/audit verify", desc: "Verify audit hash chain integrity.", staffOnly: true, policyKey: "audit" },
   { syntax: "/backup", desc: "Create/list/restore bot data backups.", staffOnly: true, policyKey: "backup" },
   { syntax: "/ops", desc: "Operations status, maintenance, safemode, inventory.", staffOnly: true, policyKey: "ops" },
   { syntax: "/ops dashboard", desc: "Show dashboard and metrics endpoints.", staffOnly: true, policyKey: "ops" },
@@ -326,6 +338,7 @@ const HELP_CATALOG = [
   { syntax: "/ops organize", desc: "Preview/apply server channel organization cleanup.", staffOnly: true, policyKey: "ops" },
   { syntax: "/ops analytics", desc: "Show command usage and error trends.", staffOnly: true, policyKey: "ops" },
   { syntax: "/ops syncpanel", desc: "Sync bot ops snapshot to admin panel.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/ops disaster", desc: "Enable/disable disaster recovery mode.", staffOnly: true, policyKey: "ops" },
   { syntax: "/rolesync", desc: "Preview/validate role-sync rules.", staffOnly: true, policyKey: "ops" },
   { syntax: "/permissions audit", desc: "Check missing bot permissions in key channels.", staffOnly: true, policyKey: "ops" },
   { syntax: "/staffpanel", desc: "Open one-click staff action panel.", staffOnly: true, policyKey: "ops" },
@@ -340,6 +353,14 @@ const HELP_CATALOG = [
   { syntax: "/announcepreset", desc: "Send preset announcement template.", staffOnly: true, policyKey: "announce" },
   { syntax: "/health", desc: "Run bot health checks.", staffOnly: true, policyKey: "health" },
   { syntax: "/diagnose", desc: "Diagnose command policy, perms, cooldown, and context.", staffOnly: false },
+  { syntax: "/oncall", desc: "Manage and ping on-call rota.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/sla board", desc: "Show SLA queue and breach status.", staffOnly: true, policyKey: "mod" },
+  { syntax: "/summarize", desc: "Summarize channel/user moderation context.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/safety score", desc: "Show channel safety score.", staffOnly: true, policyKey: "incident" },
+  { syntax: "/drill", desc: "Run and score red-team drills.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/vault", desc: "Create/list signed evidence links.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/kb", desc: "Ingest and search custom knowledge snippets.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/approve", desc: "Approve/deny pending high-risk requests.", staffOnly: true, policyKey: "admin" },
   { syntax: "/metrics", desc: "Show runtime metrics summary.", staffOnly: true, policyKey: "metrics" },
   { syntax: "/poll", desc: "Create quick reaction poll.", staffOnly: true, policyKey: "poll" },
   { syntax: "/event", desc: "Create/list/announce/end events.", staffOnly: true, policyKey: "event" },
@@ -528,6 +549,61 @@ function savePostmortems(list) {
   } catch {}
 }
 
+function loadOncall() {
+  return readJsonFile(oncallFile, []);
+}
+
+function saveOncall(rows) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(oncallFile, JSON.stringify(rows || [], null, 2));
+  } catch {}
+}
+
+function loadDrills() {
+  return readJsonFile(drillsFile, []);
+}
+
+function saveDrills(rows) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(drillsFile, JSON.stringify(rows || [], null, 2));
+  } catch {}
+}
+
+function loadVaultLinks() {
+  return readJsonFile(vaultLinksFile, []);
+}
+
+function saveVaultLinks(rows) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(vaultLinksFile, JSON.stringify(rows || [], null, 2));
+  } catch {}
+}
+
+function loadKnowledgeIngest() {
+  return readJsonFile(knowledgeIngestFile, []);
+}
+
+function saveKnowledgeIngest(rows) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(knowledgeIngestFile, JSON.stringify(rows || [], null, 2));
+  } catch {}
+}
+
+function loadModQueue() {
+  return readJsonFile(modQueueFile, []);
+}
+
+function saveModQueue(rows) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(modQueueFile, JSON.stringify(rows || [], null, 2));
+  } catch {}
+}
+
 function defaultModCallsState() {
   return {
     cases: [],
@@ -697,6 +773,18 @@ async function executeAdminAction(interaction, action, payload, actorId, reqId =
     const deleted = await channel.bulkDelete(amount, true).catch(() => null);
     if (!deleted) throw new Error("Bulk delete failed.");
     return `Purged ${deleted.size} messages in <#${channel.id}>.`;
+  }
+  if (action === "clear_nuke") {
+    const channel = await guild.channels.fetch(payload.channelId).catch(() => null);
+    if (!channel || !channel.isTextBased()) throw new Error("Target channel invalid.");
+    if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
+      throw new Error("Nuke supports text/announcement channels only.");
+    }
+    const cloned = await channel.clone({ reason: `Approved nuke by ${actorId}` }).catch(() => null);
+    if (!cloned) throw new Error("Failed to clone channel for nuke.");
+    await cloned.setPosition(channel.position).catch(() => null);
+    await channel.delete(`Approved nuke by ${actorId}`).catch(() => null);
+    return `Nuked channel <#${payload.channelId}> -> <#${cloned.id}>.`;
   }
   if (action === "lockdown" || action === "unlockdown") {
     const channel = await guild.channels.fetch(payload.channelId).catch(() => null);
@@ -1060,6 +1148,9 @@ function getKnowledgeRows() {
   for (const [topic, steps] of Object.entries(PLAYBOOKS)) {
     rows.push({ topic: `playbook-${topic}`, text: `${topic} playbook: ${steps.join(" ")}` });
   }
+  for (const row of loadKnowledgeIngest().slice(0, 500)) {
+    rows.push({ topic: String(row.topic || "custom"), text: String(row.text || "") });
+  }
   return rows;
 }
 
@@ -1280,6 +1371,83 @@ async function closeTicketConversation(interaction, channel) {
     await interaction.editReply({ content: "Ticket marked closed, but I could not delete this channel/thread. Check bot Manage Channels permission." }).catch(() => {});
   }
   return true;
+}
+
+function getOncallPair() {
+  const rows = loadOncall().filter((x) => x && x.userId);
+  if (!rows.length) return { primary: null, backup: null };
+  const day = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+  const primary = rows[day % rows.length];
+  const backup = rows[(day + 1) % rows.length] || null;
+  return { primary, backup };
+}
+
+function buildSlaBoard() {
+  const data = loadModCallsState();
+  const now = Date.now();
+  const open = data.cases.filter((x) => x.status !== "closed" && x.status !== "cancelled");
+  const firstDue = open.filter((x) => !x.claimedBy).map((x) => ({
+    id: x.id,
+    dueMs: (new Date(x.createdAt || 0).getTime() + modCallFirstResponseSlaMinutes * 60 * 1000) - now
+  }));
+  const resolveDue = open.filter((x) => x.claimedBy).map((x) => ({
+    id: x.id,
+    dueMs: (new Date(x.createdAt || 0).getTime() + modCallResolutionSlaMinutes * 60 * 1000) - now
+  }));
+  const overdueFirst = firstDue.filter((x) => x.dueMs < 0).length;
+  const overdueResolve = resolveDue.filter((x) => x.dueMs < 0).length;
+  return {
+    open: open.length,
+    unclaimed: open.filter((x) => !x.claimedBy).length,
+    overdueFirst,
+    overdueResolve,
+    hotCases: open
+      .sort((a, b) => (new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()))
+      .slice(0, 8)
+      .map((x) => `${x.id}:${x.priority || "normal"}:${x.claimedBy ? "claimed" : "unclaimed"}`)
+  };
+}
+
+async function summarizeChannelActivity(channel, minutes = 30) {
+  if (!channel || !channel.isTextBased()) return "Channel unavailable.";
+  const maxMinutes = Math.max(5, Math.min(minutes, 180));
+  const since = Date.now() - maxMinutes * 60 * 1000;
+  const fetched = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  if (!fetched || !fetched.size) return `No recent messages in the last ${maxMinutes}m.`;
+  const rows = fetched.filter((m) => m.createdTimestamp >= since);
+  if (!rows.size) return `No recent messages in the last ${maxMinutes}m.`;
+  const participants = new Set();
+  const keywords = {};
+  let flagged = 0;
+  for (const m of rows.values()) {
+    if (m.author?.bot) continue;
+    participants.add(m.author.id);
+    const text = String(m.content || "").toLowerCase();
+    if (/(kys|kill yourself|nigger|faggot|retard|rape|dox|swat|ddos|die)/i.test(text)) flagged += 1;
+    for (const term of text.split(/\W+/).filter(Boolean)) {
+      if (term.length < 4) continue;
+      keywords[term] = (keywords[term] || 0) + 1;
+    }
+  }
+  const top = Object.entries(keywords).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k]) => k).join(", ") || "none";
+  return [
+    `Window: ${maxMinutes}m`,
+    `Messages: ${rows.size}`,
+    `Participants: ${participants.size}`,
+    `Flagged toxicity hits: ${flagged}`,
+    `Top terms: ${top}`
+  ].join("\n");
+}
+
+function safetyScoreForChannel(channelId) {
+  const keyPrefix = `:${channelId || "unknown"}`;
+  let toxicHits = 0;
+  for (const [k, arr] of toxicityWindow.entries()) {
+    if (k.endsWith(keyPrefix)) toxicHits += arr.length;
+  }
+  const incidents = loadIncidents().filter((x) => String(x.reason || "").includes(`#${channelId}`)).length;
+  const score = Math.max(0, 100 - (toxicHits * 8 + incidents * 5));
+  return { score, toxicHits, incidents };
 }
 
 async function notifyUrgentStaff(guild, payload) {
@@ -2473,6 +2641,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildPresences
   ]
@@ -2582,6 +2751,39 @@ client.on("messageCreate", async (message) => {
 
   await message.delete().catch(() => {});
   await sendMessageWithGuards(message.channel, { content: `⚠️ <@${message.author.id}> message removed by raid mode. Please slow down and avoid mass mentions/links.` }, "raidmode.enforcement").catch(() => {});
+});
+
+client.on("messageReactionAdd", async (reaction, user) => {
+  try {
+    if (user?.bot) return;
+    const r = reaction.partial ? await reaction.fetch().catch(() => null) : reaction;
+    if (!r || !r.message || !r.message.guild) return;
+    const emoji = r.emoji?.name || "";
+    if (emoji !== "⚠️") return;
+    const queue = loadModQueue();
+    const key = `${r.message.id}:${user.id}`;
+    if (queue.some((x) => x.key === key)) return;
+    const row = {
+      id: makeId("mq"),
+      key,
+      messageId: r.message.id,
+      channelId: r.message.channelId,
+      guildId: r.message.guild.id,
+      requestedBy: user.id,
+      createdAt: new Date().toISOString(),
+      status: "open"
+    };
+    queue.unshift(row);
+    saveModQueue(queue.slice(0, 1000));
+    const oncall = getOncallPair();
+    const ping = oncall.primary ? `<@${oncall.primary.userId}>` : (modCallRoleId ? `<@&${modCallRoleId}>` : "staff");
+    const channel = modCallChannelId ? await client.channels.fetch(modCallChannelId).catch(() => null) : null;
+    if (channel && channel.isTextBased()) {
+      await sendMessageWithGuards(channel, {
+        content: `⚠️ Mod request queued by <@${user.id}> in <#${r.message.channelId}>. ${ping}\nMessage: https://discord.com/channels/${r.message.guild.id}/${r.message.channelId}/${r.message.id}`
+      }, "modqueue.reaction");
+    }
+  } catch {}
 });
 
 client.on("interactionCreate", async (interaction) => {
@@ -3042,6 +3244,236 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
+    if (interaction.commandName === "approve") {
+      const staff = await requireStaff(interaction, "admin");
+      if (!staff) return;
+      const requestId = interaction.options.getString("request_id", true);
+      const decision = interaction.options.getString("decision", true);
+      const note = truncate(interaction.options.getString("note") || "", 220);
+      const approvals = loadPendingAdminApprovals();
+      const row = approvals.find((x) => x.id === requestId);
+      if (!row) {
+        await interaction.reply({ content: `Approval request not found: ${requestId}`, ephemeral: true });
+        return;
+      }
+      if (row.status !== "pending") {
+        await interaction.reply({ content: `Approval request is already ${row.status}.`, ephemeral: true });
+        return;
+      }
+      if (decision === "deny") {
+        row.status = "rejected";
+        row.approvedBy = interaction.user.id;
+        row.approvedAt = new Date().toISOString();
+        row.approvalNote = note;
+        savePendingAdminApprovals(approvals);
+        await interaction.reply({ content: `Denied request \`${requestId}\`.`, ephemeral: true });
+        return;
+      }
+      const result = await executeAdminAction(interaction, row.action, row.payload || {}, interaction.user.id, reqId).catch((e) => `Execution failed: ${e instanceof Error ? e.message : String(e)}`);
+      row.status = "approved";
+      row.approvedBy = interaction.user.id;
+      row.approvedAt = new Date().toISOString();
+      row.approvalNote = note;
+      savePendingAdminApprovals(approvals);
+      await interaction.reply({ content: `Approved \`${requestId}\`: ${truncate(String(result || "done"), 600)}`, ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "oncall") {
+      const staff = await requireStaff(interaction, "ops");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      const rows = loadOncall();
+      if (sub === "add") {
+        const user = interaction.options.getUser("user", true);
+        const timezone = truncate(interaction.options.getString("timezone") || "UTC", 32);
+        if (!rows.some((x) => x.userId === user.id)) {
+          rows.push({ userId: user.id, timezone, addedAt: new Date().toISOString(), addedBy: interaction.user.id });
+          saveOncall(rows.slice(0, 100));
+        }
+        await interaction.reply({ content: `On-call added: <@${user.id}> (${timezone})`, ephemeral: true });
+        return;
+      }
+      if (sub === "list") {
+        const lines = rows.length ? rows.map((x, i) => `${i + 1}. <@${x.userId}> (${x.timezone || "UTC"})`) : ["No on-call rota configured."];
+        const pair = getOncallPair();
+        if (pair.primary) lines.unshift(`Primary now: <@${pair.primary.userId}>`);
+        if (pair.backup) lines.unshift(`Backup now: <@${pair.backup.userId}>`);
+        await interaction.reply({ content: lines.join("\n"), ephemeral: true });
+        return;
+      }
+      if (sub === "remove") {
+        const user = interaction.options.getUser("user", true);
+        saveOncall(rows.filter((x) => x.userId !== user.id));
+        await interaction.reply({ content: `On-call removed: <@${user.id}>`, ephemeral: true });
+        return;
+      }
+      if (sub === "ping") {
+        const issue = truncate(interaction.options.getString("issue", true), 250);
+        const pair = getOncallPair();
+        const primary = pair.primary ? `<@${pair.primary.userId}>` : "none";
+        const backup = pair.backup ? `<@${pair.backup.userId}>` : "none";
+        const channel = modCallChannelId ? await client.channels.fetch(modCallChannelId).catch(() => null) : interaction.channel;
+        if (channel && channel.isTextBased()) {
+          await sendMessageWithGuards(channel, { content: `🚨 On-call ping\nIssue: ${issue}\nPrimary: ${primary}\nBackup: ${backup}` }, "oncall.ping", reqId);
+        }
+        await interaction.reply({ content: `On-call ping sent. Primary: ${primary} Backup: ${backup}`, ephemeral: true });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "sla") {
+      const staff = await requireStaff(interaction, "mod");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      if (sub === "board") {
+        const board = buildSlaBoard();
+        await interaction.reply({
+          content: [
+            "SLA Board",
+            `Open cases: ${board.open}`,
+            `Unclaimed: ${board.unclaimed}`,
+            `Overdue first response: ${board.overdueFirst}`,
+            `Overdue resolution: ${board.overdueResolve}`,
+            `Hot cases: ${board.hotCases.join(", ") || "none"}`
+          ].join("\n"),
+          ephemeral: true
+        });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "summarize") {
+      const staff = await requireStaff(interaction, "modcall");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      if (sub === "channel") {
+        const target = interaction.options.getChannel("channel") || interaction.channel;
+        const minutes = interaction.options.getInteger("minutes") || 30;
+        const summary = await summarizeChannelActivity(target, minutes);
+        await interaction.reply({ content: truncate(summary, 1900), ephemeral: true });
+        return;
+      }
+      if (sub === "user") {
+        const user = interaction.options.getUser("user", true);
+        const incidents = loadIncidents().filter((x) => x.userId === user.id);
+        const tickets = loadTickets().filter((x) => x.userId === user.id);
+        const score = getUserRiskScore(user.id);
+        await interaction.reply({
+          content: [
+            `Risk Summary for <@${user.id}>`,
+            `Risk score: ${score}`,
+            `Incidents: ${incidents.length}`,
+            `Open incidents: ${incidents.filter((x) => x.status === "open").length}`,
+            `Tickets: ${tickets.length}`,
+            `Recent reasons: ${incidents.slice(0, 3).map((x) => truncate(x.reason || "", 80)).join(" | ") || "none"}`
+          ].join("\n"),
+          ephemeral: true
+        });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "safety") {
+      const staff = await requireStaff(interaction, "incident");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      if (sub === "score") {
+        const channel = interaction.options.getChannel("channel") || interaction.channel;
+        const s = safetyScoreForChannel(channel?.id || "");
+        await interaction.reply({
+          content: `Safety score for <#${channel?.id || interaction.channelId}>: ${s.score}/100\nToxicity hits: ${s.toxicHits}\nIncident references: ${s.incidents}`,
+          ephemeral: true
+        });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "drill") {
+      const staff = await requireStaff(interaction, "ops");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      const rows = loadDrills();
+      if (sub === "start") {
+        const scenario = interaction.options.getString("scenario", true);
+        const id = makeId("drill");
+        rows.unshift({ id, scenario, startedBy: interaction.user.id, startedAt: new Date().toISOString(), score: null, notes: "" });
+        saveDrills(rows.slice(0, 500));
+        await interaction.reply({ content: `Drill started: \`${id}\` (${scenario}). Run /drill score when complete.`, ephemeral: true });
+        return;
+      }
+      if (sub === "score") {
+        const id = interaction.options.getString("id", true);
+        const score = Math.max(0, Math.min(interaction.options.getInteger("score", true), 100));
+        const notes = truncate(interaction.options.getString("notes") || "", 300);
+        const row = rows.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: "Drill not found.", ephemeral: true });
+          return;
+        }
+        row.score = score;
+        row.notes = notes;
+        row.scoredBy = interaction.user.id;
+        row.scoredAt = new Date().toISOString();
+        saveDrills(rows);
+        await interaction.reply({ content: `Drill scored: \`${id}\` = ${score}/100`, ephemeral: true });
+        return;
+      }
+      if (sub === "report") {
+        const latest = rows.slice(0, 10);
+        await interaction.reply({ content: latest.length ? latest.map((x) => `\`${x.id}\` ${x.scenario} score:${x.score ?? "pending"} by:<@${x.startedBy}>`).join("\n") : "No drills logged.", ephemeral: true });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "vault") {
+      const staff = await requireStaff(interaction, "modcall");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      const rows = loadVaultLinks();
+      if (sub === "create") {
+        const caseId = interaction.options.getString("case_id", true);
+        const expiresHours = Math.max(1, Math.min(interaction.options.getInteger("expires_hours") || 24, 168));
+        const createdAt = Date.now();
+        const expiresAt = createdAt + expiresHours * 60 * 60 * 1000;
+        const token = sha256(`${caseId}:${createdAt}:${interaction.user.id}:${Math.random()}`).slice(0, 32);
+        const link = `${(dashboardBaseUrl || `http://${metricsHost}:${metricsPort || 9091}`).replace(/\/$/, "")}/evidence/${caseId}?token=${token}`;
+        rows.unshift({ id: makeId("vault"), caseId, token, link, createdBy: interaction.user.id, createdAt: new Date(createdAt).toISOString(), expiresAt: new Date(expiresAt).toISOString() });
+        saveVaultLinks(rows.slice(0, 2000));
+        await interaction.reply({ content: `Evidence link created:\n${link}\nExpires: ${new Date(expiresAt).toISOString()}`, ephemeral: true });
+        return;
+      }
+      if (sub === "list") {
+        const caseId = interaction.options.getString("case_id") || "";
+        const now = Date.now();
+        const filtered = rows.filter((x) => !caseId || x.caseId === caseId).slice(0, 20);
+        const lines = filtered.map((x) => `\`${x.id}\` case:\`${x.caseId}\` ${new Date(x.expiresAt).getTime() < now ? "expired" : "active"} by <@${x.createdBy}>`);
+        await interaction.reply({ content: lines.length ? lines.join("\n") : "No vault links.", ephemeral: true });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "kb") {
+      const staff = await requireStaff(interaction, "modcall");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      if (sub === "ingest") {
+        const topic = truncate(interaction.options.getString("topic", true), 80);
+        const text = truncate(interaction.options.getString("text", true), 1500);
+        const rows = loadKnowledgeIngest();
+        rows.unshift({ id: makeId("kb"), topic, text, createdAt: new Date().toISOString(), createdBy: interaction.user.id });
+        saveKnowledgeIngest(rows.slice(0, 2000));
+        await interaction.reply({ content: `Knowledge ingested under topic \`${topic}\`.`, ephemeral: true });
+        return;
+      }
+      if (sub === "search") {
+        const query = interaction.options.getString("query", true);
+        const hits = searchKnowledge(query, 8);
+        await interaction.reply({ content: hits.length ? hits.map((h, i) => `${i + 1}. [${h.topic}] ${truncate(h.text, 200)}`).join("\n") : "No KB hits.", ephemeral: true });
+        return;
+      }
+    }
+
     if (interaction.commandName === "whois") {
       if (!interaction.inGuild() || !interaction.guild) {
         await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
@@ -3203,6 +3635,26 @@ client.on("interactionCreate", async (interaction) => {
         }
         const allowed = hasPolicyAccess(member, command);
         await interaction.reply({ content: `Policy test: <@${user.id}> ${allowed ? "CAN" : "CANNOT"} run \`/${command}\`.`, ephemeral: true });
+        return;
+      }
+      if (sub === "suggest") {
+        const audit = loadAuditEntries(2000);
+        const denied = audit.filter((x) => x.status === "denied");
+        const errored = audit.filter((x) => x.status === "error");
+        const byCmd = {};
+        for (const row of denied) {
+          const cmd = String(row.command || "unknown");
+          byCmd[cmd] = (byCmd[cmd] || 0) + 1;
+        }
+        const topDenied = Object.entries(byCmd).sort((a, b) => b[1] - a[1]).slice(0, 6);
+        const suggestions = [];
+        if (topDenied.length) {
+          suggestions.push(`Top denied commands: ${topDenied.map(([c, n]) => `/${c}(${n})`).join(", ")}`);
+          suggestions.push("Consider adding explicit role mappings in permissions-policy.json for legitimate staff workflows.");
+        }
+        if (errored.length > 20) suggestions.push(`High command error volume detected (${errored.length}). Enable safe mode and review recent deploy changes.`);
+        if (!suggestions.length) suggestions.push("No strong policy tuning signals found yet.");
+        await interaction.reply({ content: suggestions.join("\n"), ephemeral: true });
         return;
       }
     }
@@ -5116,6 +5568,29 @@ client.on("interactionCreate", async (interaction) => {
         }
         return;
       }
+
+      if (sub === "disaster") {
+        const stateValue = interaction.options.getString("state", true);
+        const enabled = stateValue === "on";
+        if (enabled) {
+          const label = `disaster-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}`;
+          const file = createDataBackup(label, interaction.user.id);
+          setMaintenanceState(true, "Disaster recovery mode is active. Staff-only operations.", interaction.user.id);
+          setAdminSafeMode(true, interaction.user.id);
+          const community = loadCommunity();
+          community.raidMode = true;
+          saveCommunity(community);
+          await interaction.reply({ content: `Disaster mode enabled. Backup created: \`${file}\`. Maintenance + safemode + raidmode enabled.`, ephemeral: true });
+          return;
+        }
+        setMaintenanceState(false, "Maintenance disabled.", interaction.user.id);
+        setAdminSafeMode(false, interaction.user.id);
+        const community = loadCommunity();
+        community.raidMode = false;
+        saveCommunity(community);
+        await interaction.reply({ content: "Disaster mode disabled. Maintenance + safemode + raidmode reset.", ephemeral: true });
+        return;
+      }
     }
 
     if (interaction.commandName === "rolesync") {
@@ -6215,6 +6690,31 @@ client.on("interactionCreate", async (interaction) => {
           });
           return;
         }
+        if (adminRequireSecondConfirmation) {
+          const approvals = loadPendingAdminApprovals();
+          const record = {
+            id: makeId("apr"),
+            action: "clear_nuke",
+            payload: { channelId: target.id, reason },
+            requestedBy: interaction.user.id,
+            requestedAt: new Date().toISOString(),
+            status: "pending",
+            approvedBy: "",
+            approvedAt: ""
+          };
+          approvals.unshift(record);
+          savePendingAdminApprovals(approvals.slice(0, 300));
+          if (logChannelId) {
+            const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+            if (logChannel && logChannel.isTextBased()) {
+              await sendMessageWithGuards(logChannel, {
+                content: `🛂 Approval required for clear_nuke request \`${record.id}\` on <#${target.id}> by <@${interaction.user.id}>. Use /approve request_id:${record.id} decision:approve`
+              }, "clear.nuke.approval", reqId);
+            }
+          }
+          await interaction.reply({ content: `Nuke request queued for approval: \`${record.id}\`.`, ephemeral: true });
+          return;
+        }
 
         await interaction.reply({ content: `Nuking <#${target.id}>...`, ephemeral: true });
         const cloned = await target.clone({ reason: `Channel nuke by ${interaction.user.tag}` }).catch(() => null);
@@ -6979,6 +7479,18 @@ async function runRetentionMaintenance() {
     saveTickets(keptTickets);
     logEvent("info", "retention.tickets.pruned", { staleClosed, removed: tickets.length - keptTickets.length });
   }
+
+  const vault = loadVaultLinks();
+  const keptVault = vault.filter((x) => new Date(x.expiresAt || 0).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000);
+  if (keptVault.length !== vault.length) saveVaultLinks(keptVault);
+
+  const queue = loadModQueue();
+  const keptQueue = queue.filter((x) => new Date(x.createdAt || 0).getTime() > Date.now() - 30 * 24 * 60 * 60 * 1000);
+  if (keptQueue.length !== queue.length) saveModQueue(keptQueue);
+
+  const drills = loadDrills();
+  const keptDrills = drills.filter((x) => new Date(x.startedAt || 0).getTime() > Date.now() - 365 * 24 * 60 * 60 * 1000);
+  if (keptDrills.length !== drills.length) saveDrills(keptDrills);
 }
 
 async function runModCallEscalations() {
@@ -7098,6 +7610,11 @@ async function runModWeeklyDigest() {
     byMod[row.closedBy] = (byMod[row.closedBy] || 0) + 1;
   }
   const topMods = Object.entries(byMod).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, n]) => `<@${id}>:${n}`).join(", ") || "none";
+  const coaching = [];
+  if (avgResponse > modCallFirstResponseSlaMinutes * 60 * 1000) coaching.push("First response average is above SLA; tighten assignment discipline.");
+  if (avgResolution > modCallResolutionSlaMinutes * 60 * 1000) coaching.push("Resolution average is above SLA; improve escalation + handoff coverage.");
+  if ((data.stats.falseReports || 0) > 10) coaching.push("False-report volume is elevated; increase reporter verification prompts.");
+  if (!coaching.length) coaching.push("Great week. Keep current response and closure tempo.");
 
   enqueueJob({
     type: "mod-weekly-digest",
@@ -7111,7 +7628,8 @@ async function runModWeeklyDigest() {
       `Avg resolution: ${Math.floor(avgResolution / 60000)}m`,
       `Escalations: ${data.stats.escalated || 0}`,
       `False-report flags: ${data.stats.falseReports || 0}`,
-      `Top closers: ${topMods}`
+      `Top closers: ${topMods}`,
+      `Coaching: ${coaching.join(" ")}`
     ].join("\n"),
     maxRetries: 6
   });
@@ -7155,6 +7673,25 @@ async function runOpsWatchdog() {
   }
 }
 
+async function runVoiceRaidProtections() {
+  bumpMetric("schedulerRun");
+  const community = loadCommunity();
+  if (!community.raidMode) return;
+  for (const guild of client.guilds.cache.values()) {
+    await guild.channels.fetch();
+    for (const channel of guild.channels.cache.values()) {
+      if (!channel || channel.type !== ChannelType.GuildVoice) continue;
+      if (channel.members.size < voiceRaidMemberThreshold) continue;
+      const current = Number(channel.userLimit || 0);
+      const target = Math.min(99, Math.max(4, voiceRaidMemberThreshold));
+      if (!current || current > target) {
+        await channel.setUserLimit(target, "Auto voice raid protection").catch(() => null);
+      }
+      await sendOpsAlert("voice-raid-protection", `Voice raid protection triggered in #${channel.name}: ${channel.members.size} members.`);
+    }
+  }
+}
+
 function safeScheduler(task) {
   task().catch((err) => {
     bumpMetric("schedulerError");
@@ -7181,6 +7718,7 @@ function startSchedulers() {
   setTimeout(() => safeScheduler(runModCallEscalations), initialDelayMs);
   setTimeout(() => safeScheduler(runOpsWatchdog), initialDelayMs);
   setTimeout(() => safeScheduler(runShiftPlanReminders), initialDelayMs);
+  setTimeout(() => safeScheduler(runVoiceRaidProtections), initialDelayMs);
 
   setInterval(() => safeScheduler(postStatusUpdate), intervalMs(autoStatusMinutes));
   setInterval(() => safeScheduler(postLatestUpdate), intervalMs(autoUpdatesMinutes));
@@ -7198,6 +7736,7 @@ function startSchedulers() {
   setInterval(() => safeScheduler(runModWeeklyDigest), 60 * 1000);
   setInterval(() => safeScheduler(runOpsWatchdog), 60 * 1000);
   setInterval(() => safeScheduler(runShiftPlanReminders), 60 * 1000);
+  setInterval(() => safeScheduler(runVoiceRaidProtections), 60 * 1000);
 }
 
 client.login(token);
