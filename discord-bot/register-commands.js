@@ -165,6 +165,56 @@ const commands = [
     .addSubcommand((sub) =>
       sub.setName("metrics").setDescription("Show weekly moderation metrics")
     ),
+  new SlashCommandBuilder()
+    .setName("admin")
+    .setDescription("Admin control plane with approvals and rollback")
+    .addSubcommand((sub) =>
+      sub
+        .setName("purge")
+        .setDescription("Purge recent messages")
+        .addIntegerOption((opt) => opt.setName("amount").setDescription("Messages to delete (1-100)").setRequired(true))
+        .addChannelOption((opt) => opt.setName("channel").setDescription("Target channel").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("lockdown")
+        .setDescription("Lock a channel for @everyone")
+        .addChannelOption((opt) => opt.setName("channel").setDescription("Target channel").setRequired(false))
+        .addStringOption((opt) => opt.setName("reason").setDescription("Reason").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("unlockdown")
+        .setDescription("Unlock a channel for @everyone")
+        .addChannelOption((opt) => opt.setName("channel").setDescription("Target channel").setRequired(false))
+        .addStringOption((opt) => opt.setName("reason").setDescription("Reason").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("rolegrant")
+        .setDescription("Grant role to user")
+        .addUserOption((opt) => opt.setName("user").setDescription("Target user").setRequired(true))
+        .addRoleOption((opt) => opt.setName("role").setDescription("Role to grant").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("rolerevoke")
+        .setDescription("Revoke role from user")
+        .addUserOption((opt) => opt.setName("user").setDescription("Target user").setRequired(true))
+        .addRoleOption((opt) => opt.setName("role").setDescription("Role to revoke").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("snapshot")
+        .setDescription("Capture current channel lock/slowmode snapshot")
+        .addStringOption((opt) => opt.setName("label").setDescription("Snapshot label").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("rollback")
+        .setDescription("Rollback channel lock/slowmode snapshot")
+        .addStringOption((opt) => opt.setName("snapshot_id").setDescription("Snapshot id").setRequired(true))
+    ),
   new SlashCommandBuilder().setName("metrics").setDescription("Show bot runtime metrics (staff only)"),
   new SlashCommandBuilder().setName("whois").setDescription("Show member profile")
     .addUserOption((opt) =>

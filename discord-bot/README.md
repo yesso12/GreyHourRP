@@ -27,6 +27,8 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - Live moderator call workflow with button intake, SLA escalation, assignment, transfer, and closure.
 - Case evidence intake (attachments/links), context packs, reporter DM updates, and quick safety actions.
 - Moderator shift tracking, coverage view, and weekly moderation digest metrics.
+- Admin control plane with rollback snapshots and guarded high-risk actions.
+- Two-person approval flow for high-risk `/admin` actions.
 - Admin-only broadcast to announcement channel.
 - Auto status polling + change announcements.
 - Auto updates polling + announcements.
@@ -43,6 +45,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 ## Setup
 1. Create a Discord application + bot.
 2. Copy `.env.example` to `.env` and fill values.
+   - Use `.env.staging.example` or `.env.production.example` as baselines.
 3. Install dependencies:
    - `npm install`
 4. Run preflight checks:
@@ -146,6 +149,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `AUDIT_RETENTION_DAYS` (default 30)
 - `INCIDENT_RETENTION_DAYS` (default 180)
 - `REGISTER_SCOPE` (`guild`, `global`, `both`)
+- `ADMIN_REQUIRE_SECOND_CONFIRMATION` (default true)
 
 ## Commands
 - `/ping`
@@ -154,6 +158,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/ops status|maintenance|inventory`
 - `/modcall setup|create|list|claim|transfer|close|status|evidence|flag`
 - `/mod shift|coverage|metrics`
+- `/admin purge|lockdown|unlockdown|rolegrant|rolerevoke|snapshot|rollback`
 - `/metrics`
 - `/audit list`
 - `/audit export`
@@ -208,3 +213,4 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - Keep the API protected behind nginx/basic-auth credentials and strict role mapping.
 - Smoke check validates Admin API auth + service state: `npm run smoke`
 - Policy file is evaluated on every staff command gate (`/backup`, `/audit`, `/incident`, `/ops`, etc.).
+- Bot admin API calls include a request correlation header (`X-Request-ID`) for tracing.

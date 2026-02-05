@@ -3,7 +3,7 @@ import fs from "fs";
 import http from "http";
 import path from "path";
 import { randomUUID } from "crypto";
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, Client, EmbedBuilder, GatewayIntentBits } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, Client, EmbedBuilder, GatewayIntentBits, PermissionsBitField } from "discord.js";
 import { canAccessCommand, normalizePolicy } from "./lib/policy.js";
 import { sha256, verifyBackupPayload as verifyBackupPayloadCore } from "./lib/backup.js";
 
@@ -46,6 +46,7 @@ const modCallEscalateMinutes = Number(process.env.MODCALL_ESCALATE_MINUTES || 5)
 const modCallEscalateRepeatMinutes = Number(process.env.MODCALL_ESCALATE_REPEAT_MINUTES || 10);
 const modCallDigestHourUtc = Number(process.env.MODCALL_DIGEST_HOUR_UTC || 13);
 const modCallDigestWeekdayUtc = Number(process.env.MODCALL_DIGEST_WEEKDAY_UTC || 1);
+const adminRequireSecondConfirmation = !/^(0|false|no)$/i.test(process.env.ADMIN_REQUIRE_SECOND_CONFIRMATION || "true");
 const raidModeMaxMentions = Number(process.env.RAID_MODE_MAX_MENTIONS || 5);
 const raidModeMinAccountDays = Number(process.env.RAID_MODE_MIN_ACCOUNT_DAYS || 7);
 const allowedRoleIds = (process.env.ALLOWED_ROLE_IDS || "").split(",").map(r => r.trim()).filter(Boolean);
@@ -138,6 +139,7 @@ const eventsFile = path.join(stateDir, "events.json");
 const communityFile = path.join(stateDir, "community.json");
 const incidentsFile = path.join(stateDir, "incidents.json");
 const modCallsFile = path.join(stateDir, "modcalls.json");
+const adminSnapshotsFile = path.join(stateDir, "admin-snapshots.json");
 const auditLogFile = path.join(stateDir, "audit.log.jsonl");
 const jobsFile = path.join(stateDir, "jobs.json");
 const smokeStatusFile = path.join(stateDir, "smoke-status.json");
@@ -310,6 +312,172 @@ function saveModCallsState(data) {
     fs.mkdirSync(stateDir, { recursive: true });
     fs.writeFileSync(modCallsFile, JSON.stringify(data, null, 2));
   } catch {}
+}
+
+function loadAdminSnapshots() {
+  return readJsonFile(adminSnapshotsFile, []);
+}
+
+function saveAdminSnapshots(rows) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(adminSnapshotsFile, JSON.stringify(rows, null, 2));
+  } catch {}
+}
+
+function loadPendingAdminApprovals() {
+  const state = loadState();
+  return Array.isArray(state.pendingAdminApprovals) ? state.pendingAdminApprovals : [];
+}
+
+function savePendingAdminApprovals(rows) {
+  const state = loadState();
+  state.pendingAdminApprovals = rows;
+  saveState(state);
+}
+
+function isHighRiskAdminAction(action) {
+  if (!adminRequireSecondConfirmation) return false;
+  return ["purge", "lockdown", "unlockdown", "rollback"].includes(action);
+}
+
+function describeAdminAction(action, payload) {
+  if (action === "purge") return `purge ${payload.amount} in #${payload.channelId}`;
+  if (action === "lockdown") return `lockdown #${payload.channelId}`;
+  if (action === "unlockdown") return `unlockdown #${payload.channelId}`;
+  if (action === "rolegrant") return `rolegrant role ${payload.roleId} to user ${payload.userId}`;
+  if (action === "rolerevoke") return `rolerevoke role ${payload.roleId} from user ${payload.userId}`;
+  if (action === "snapshot") return `snapshot ${payload.label || "manual"}`;
+  if (action === "rollback") return `rollback snapshot ${payload.snapshotId}`;
+  return action;
+}
+
+function createApprovalRecord(action, payload, requestedBy, guildId, channelId) {
+  return {
+    id: makeId("apr"),
+    action,
+    payload,
+    requestedBy,
+    guildId,
+    channelId,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    confirmations: [],
+    requiredConfirmations: 1,
+    status: "pending"
+  };
+}
+
+async function sendApprovalMessage(interaction, record, reqId = "") {
+  const actionText = describeAdminAction(record.action, record.payload);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`adminapprove:confirm:${record.id}`).setLabel("Confirm").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`adminapprove:reject:${record.id}`).setLabel("Reject").setStyle(ButtonStyle.Secondary)
+  );
+  await sendMessageWithGuards(interaction.channel, {
+    content: [
+      `🔐 **Admin Approval Required**`,
+      `Request: \`${record.id}\``,
+      `Requester: <@${record.requestedBy}>`,
+      `Action: ${actionText}`,
+      `Policy: second staff confirmation required`,
+      `Expires: ${record.expiresAt}`
+    ].join("\n"),
+    components: [row]
+  }, "admin.approval.request", reqId);
+}
+
+function getEveryoneSendState(channel, everyoneRoleId) {
+  const overwrite = channel.permissionOverwrites.cache.get(everyoneRoleId);
+  if (!overwrite) return "inherit";
+  if (overwrite.allow.has(PermissionsBitField.Flags.SendMessages)) return "allow";
+  if (overwrite.deny.has(PermissionsBitField.Flags.SendMessages)) return "deny";
+  return "inherit";
+}
+
+async function createGuildSnapshot(guild, label, actorId) {
+  await guild.channels.fetch();
+  const items = guild.channels.cache
+    .filter((c) => c?.isTextBased?.() && c.type !== ChannelType.DM)
+    .map((channel) => ({
+      channelId: channel.id,
+      sendState: getEveryoneSendState(channel, guild.roles.everyone.id),
+      slowmode: typeof channel.rateLimitPerUser === "number" ? channel.rateLimitPerUser : 0
+    }));
+  const row = {
+    id: makeId("snap"),
+    label: truncate(label || "snapshot", 80),
+    guildId: guild.id,
+    createdBy: actorId,
+    createdAt: new Date().toISOString(),
+    items
+  };
+  const rows = loadAdminSnapshots();
+  rows.unshift(row);
+  saveAdminSnapshots(rows.slice(0, 200));
+  return row;
+}
+
+async function applyGuildSnapshot(guild, snapshot) {
+  const everyone = guild.roles.everyone;
+  for (const item of snapshot.items || []) {
+    const channel = await guild.channels.fetch(item.channelId).catch(() => null);
+    if (!channel || !channel.isTextBased()) continue;
+    if (typeof item.slowmode === "number" && channel.rateLimitPerUser !== undefined) {
+      await channel.setRateLimitPerUser(Math.max(0, Math.min(item.slowmode, 21600)), `Rollback snapshot ${snapshot.id}`).catch(() => {});
+    }
+    if (item.sendState === "deny") {
+      await channel.permissionOverwrites.edit(everyone, { SendMessages: false }, { reason: `Rollback snapshot ${snapshot.id}` }).catch(() => {});
+    } else if (item.sendState === "allow") {
+      await channel.permissionOverwrites.edit(everyone, { SendMessages: true }, { reason: `Rollback snapshot ${snapshot.id}` }).catch(() => {});
+    } else {
+      await channel.permissionOverwrites.edit(everyone, { SendMessages: null }, { reason: `Rollback snapshot ${snapshot.id}` }).catch(() => {});
+    }
+  }
+}
+
+async function executeAdminAction(interaction, action, payload, actorId, reqId = "") {
+  if (!interaction.inGuild() || !interaction.guild) throw new Error("Admin actions require guild context.");
+  const guild = interaction.guild;
+  if (action === "purge") {
+    const channel = await guild.channels.fetch(payload.channelId).catch(() => null);
+    if (!channel || !channel.isTextBased()) throw new Error("Target channel invalid.");
+    const amount = Math.max(1, Math.min(Number(payload.amount || 1), 100));
+    const deleted = await channel.bulkDelete(amount, true).catch(() => null);
+    if (!deleted) throw new Error("Bulk delete failed.");
+    return `Purged ${deleted.size} messages in <#${channel.id}>.`;
+  }
+  if (action === "lockdown" || action === "unlockdown") {
+    const channel = await guild.channels.fetch(payload.channelId).catch(() => null);
+    if (!channel || !channel.isTextBased()) throw new Error("Target channel invalid.");
+    const lock = action === "lockdown";
+    await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: lock ? false : null }, {
+      reason: `${action} by ${actorId}${payload.reason ? `: ${payload.reason}` : ""}`
+    }).catch(() => {});
+    return `${lock ? "Locked" : "Unlocked"} <#${channel.id}>.`;
+  }
+  if (action === "rolegrant" || action === "rolerevoke") {
+    const member = await guild.members.fetch(payload.userId).catch(() => null);
+    const role = await guild.roles.fetch(payload.roleId).catch(() => null);
+    if (!member || !role) throw new Error("Member or role not found.");
+    if (action === "rolegrant") {
+      await member.roles.add(role, `rolegrant by ${actorId}`).catch(() => null);
+      return `Granted <@&${role.id}> to <@${member.id}>.`;
+    }
+    await member.roles.remove(role, `rolerevoke by ${actorId}`).catch(() => null);
+    return `Revoked <@&${role.id}> from <@${member.id}>.`;
+  }
+  if (action === "snapshot") {
+    const snapshot = await createGuildSnapshot(guild, payload.label || "manual", actorId);
+    return `Snapshot created: \`${snapshot.id}\` (${snapshot.items.length} channels).`;
+  }
+  if (action === "rollback") {
+    const snapshot = loadAdminSnapshots().find((x) => x.id === payload.snapshotId && x.guildId === guild.id);
+    if (!snapshot) throw new Error("Snapshot not found.");
+    await applyGuildSnapshot(guild, snapshot);
+    return `Rollback applied from snapshot \`${snapshot.id}\`.`;
+  }
+  throw new Error(`Unsupported admin action: ${action}`);
 }
 
 function getOpenModCaseById(data, id) {
@@ -1604,6 +1772,69 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
     }
+
+    if (interaction.customId.startsWith("adminapprove:")) {
+      const [, decision, approvalId] = interaction.customId.split(":");
+      const isStaff = isStaffMember(interaction, member) && hasPolicyAccess(member, "admin");
+      if (!isStaff) {
+        await interaction.reply({ content: "Only staff with /admin access can approve this request.", ephemeral: true });
+        return;
+      }
+      const approvals = loadPendingAdminApprovals();
+      const row = approvals.find((x) => x.id === approvalId);
+      if (!row || row.status !== "pending") {
+        await interaction.reply({ content: "Approval request not found or already resolved.", ephemeral: true });
+        return;
+      }
+      if (new Date(row.expiresAt).getTime() < Date.now()) {
+        row.status = "expired";
+        savePendingAdminApprovals(approvals);
+        await interaction.reply({ content: "Approval request has expired.", ephemeral: true });
+        return;
+      }
+
+      if (decision === "reject") {
+        row.status = "rejected";
+        row.rejectedBy = interaction.user.id;
+        row.rejectedAt = new Date().toISOString();
+        savePendingAdminApprovals(approvals);
+        await interaction.reply({ content: `Rejected admin request \`${approvalId}\`.`, ephemeral: true });
+        return;
+      }
+
+      if (interaction.user.id === row.requestedBy) {
+        await interaction.reply({ content: "Requester cannot self-confirm high-risk actions.", ephemeral: true });
+        return;
+      }
+      row.confirmations = ensureArray(row.confirmations);
+      if (!row.confirmations.includes(interaction.user.id)) {
+        row.confirmations.push(interaction.user.id);
+      }
+      if (row.confirmations.length < Number(row.requiredConfirmations || 1)) {
+        savePendingAdminApprovals(approvals);
+        await interaction.reply({ content: `Confirmation recorded. Waiting for ${row.requiredConfirmations - row.confirmations.length} more.`, ephemeral: true });
+        return;
+      }
+
+      row.status = "approved";
+      row.approvedAt = new Date().toISOString();
+      row.approvedBy = interaction.user.id;
+      savePendingAdminApprovals(approvals);
+      try {
+        const result = await executeAdminAction(interaction, row.action, row.payload, row.requestedBy, "");
+        addIncident({
+          severity: "high",
+          userId: row.requestedBy,
+          reason: `admin action executed ${row.action} (${approvalId})`,
+          createdBy: interaction.user.id,
+          auto: true
+        });
+        await interaction.reply({ content: `Approved and executed \`${approvalId}\`: ${result}`, ephemeral: true });
+      } catch (err) {
+        await interaction.reply({ content: `Approval succeeded, but execution failed: ${err instanceof Error ? err.message : String(err)}`, ephemeral: true });
+      }
+      return;
+    }
     return;
   }
 
@@ -1674,7 +1905,7 @@ client.on("interactionCreate", async (interaction) => {
           "/rules, /join, /links, /lore, /moddiff",
           "/poll, /event, /ticket",
           "/purge, /slowmode, /lock, /unlock",
-          "/audit, /incident, /backup, /ops, /modcall, /mod",
+          "/audit, /incident, /backup, /ops, /modcall, /mod, /admin",
           "/health, /metrics, /announce, /reminder, /activity, /roll"
         ].join("\n"),
         ephemeral: true
@@ -2652,6 +2883,78 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: lines.join("\n"), ephemeral: true });
         return;
       }
+    }
+
+    if (interaction.commandName === "admin") {
+      const staff = await requireStaff(interaction, "admin");
+      if (!staff) {
+        auditStatus = "denied";
+        return;
+      }
+      if (!interaction.inGuild() || !interaction.guild) {
+        await interaction.reply({ content: "Admin actions only run in guild channels.", ephemeral: true });
+        return;
+      }
+      const sub = interaction.options.getSubcommand();
+      let action = sub;
+      let payload = {};
+
+      if (sub === "purge") {
+        const amount = interaction.options.getInteger("amount", true);
+        const channel = interaction.options.getChannel("channel") || interaction.channel;
+        if (!channel || !channel.isTextBased()) {
+          await interaction.reply({ content: "Invalid target channel.", ephemeral: true });
+          return;
+        }
+        payload = { amount, channelId: channel.id };
+      } else if (sub === "lockdown" || sub === "unlockdown") {
+        const channel = interaction.options.getChannel("channel") || interaction.channel;
+        if (!channel || !channel.isTextBased()) {
+          await interaction.reply({ content: "Invalid target channel.", ephemeral: true });
+          return;
+        }
+        payload = {
+          channelId: channel.id,
+          reason: interaction.options.getString("reason") || ""
+        };
+      } else if (sub === "rolegrant" || sub === "rolerevoke") {
+        const user = interaction.options.getUser("user", true);
+        const role = interaction.options.getRole("role", true);
+        payload = { userId: user.id, roleId: role.id };
+      } else if (sub === "snapshot") {
+        payload = { label: interaction.options.getString("label") || "manual" };
+      } else if (sub === "rollback") {
+        payload = { snapshotId: interaction.options.getString("snapshot_id", true) };
+      } else {
+        await interaction.reply({ content: "Unsupported admin action.", ephemeral: true });
+        return;
+      }
+
+      if (isHighRiskAdminAction(action)) {
+        const approvals = loadPendingAdminApprovals();
+        const existing = approvals.find((x) => x.status === "pending" && x.requestedBy === interaction.user.id && x.action === action);
+        if (existing) {
+          await interaction.reply({ content: `You already have pending request \`${existing.id}\` for this action.`, ephemeral: true });
+          return;
+        }
+        const record = createApprovalRecord(action, payload, interaction.user.id, interaction.guildId || "", interaction.channelId || "");
+        approvals.unshift(record);
+        savePendingAdminApprovals(approvals.slice(0, 200));
+        await sendApprovalMessage(interaction, record, reqId);
+        await interaction.reply({ content: `Approval request created: \`${record.id}\`. Waiting for second staff confirmation.`, ephemeral: true });
+        return;
+      }
+
+      const result = await executeAdminAction(interaction, action, payload, interaction.user.id, reqId);
+      addIncident({
+        severity: "high",
+        userId: interaction.user.id,
+        reason: `admin action executed ${action}`,
+        createdBy: interaction.user.id,
+        auto: true
+      });
+      await interaction.reply({ content: result, ephemeral: true });
+      return;
     }
 
     if (interaction.commandName === "audit") {
