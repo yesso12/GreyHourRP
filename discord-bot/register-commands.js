@@ -172,7 +172,12 @@ const commands = [
     ),
   new SlashCommandBuilder().setName("playercount").setDescription("Show live player count"),
   new SlashCommandBuilder().setName("serverip").setDescription("Show server connection details"),
-  new SlashCommandBuilder().setName("staff").setDescription("Show current owners/admins/moderators"),
+  new SlashCommandBuilder()
+    .setName("staff")
+    .setDescription("Show current owners/admins/moderators")
+    .addBooleanOption((opt) =>
+      opt.setName("online_only").setDescription("Show only online staff").setRequired(false)
+    ),
   new SlashCommandBuilder().setName("links").setDescription("Show Grey Hour RP links"),
   new SlashCommandBuilder().setName("lore").setDescription("Show the Grey Hour lore primer"),
   new SlashCommandBuilder().setName("status").setDescription("Get live server status"),

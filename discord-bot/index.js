@@ -1234,31 +1234,41 @@ async function renderStaffList(interaction) {
   const guild = interaction.guild;
   await guild.members.fetch();
   await guild.roles.fetch();
+  const onlineOnly = interaction.options.getBoolean("online_only") || false;
+  const hasPresenceData = guild.members.cache.some((m) => Boolean(m.presence));
+  if (onlineOnly && !hasPresenceData) {
+    await interaction.reply({
+      content: "Online filtering requires member presence data. Enable Presence Intent for the bot, then try again.",
+      ephemeral: true
+    });
+    return;
+  }
+  const isOnline = (m) => !onlineOnly || (m.presence && m.presence.status !== "offline");
 
   const ownerIds = new Set([guild.ownerId, ...ownerRoleIds]);
   const adminIds = new Set(allowedRoleIds);
   const modIds = new Set([modCallRoleId, seniorModRoleId].filter(Boolean));
 
   const ownerMembers = guild.members.cache
-    .filter((m) => m.id === guild.ownerId || m.roles.cache.some((r) => ownerIds.has(r.id)))
+    .filter((m) => (m.id === guild.ownerId || m.roles.cache.some((r) => ownerIds.has(r.id))) && isOnline(m))
     .map((m) => `<@${m.id}>`)
     .slice(0, 30);
 
   const adminMembers = guild.members.cache
-    .filter((m) => m.roles.cache.some((r) => adminIds.has(r.id)))
+    .filter((m) => m.roles.cache.some((r) => adminIds.has(r.id)) && isOnline(m))
     .map((m) => `<@${m.id}>`)
     .filter((v, i, arr) => arr.indexOf(v) === i)
     .slice(0, 50);
 
   const modMembers = guild.members.cache
-    .filter((m) => m.roles.cache.some((r) => modIds.has(r.id)))
+    .filter((m) => m.roles.cache.some((r) => modIds.has(r.id)) && isOnline(m))
     .map((m) => `<@${m.id}>`)
     .filter((v, i, arr) => arr.indexOf(v) === i)
     .slice(0, 80);
 
   const embed = new EmbedBuilder()
-    .setTitle("Staff Directory")
-    .setDescription("Current staff by role group")
+    .setTitle(onlineOnly ? "Staff Directory (Online)" : "Staff Directory")
+    .setDescription(onlineOnly ? "Currently online staff by role group" : "Current staff by role group")
     .addFields(
       { name: "Owners", value: ownerMembers.join(", ") || "None configured", inline: false },
       { name: "Admins", value: adminMembers.join(", ") || "None configured", inline: false },
@@ -1324,7 +1334,8 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences
   ]
 });
 
