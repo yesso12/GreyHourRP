@@ -80,6 +80,8 @@ const permissionPolicyFile = process.env.PERMISSION_POLICY_FILE || path.join(pro
 const alertChannelId = process.env.ALERT_CHANNEL_ID || logChannelId || announceChannelId;
 const queueBacklogAlertThreshold = Number(process.env.QUEUE_BACKLOG_ALERT_THRESHOLD || 50);
 const commandErrorRateThreshold = Number(process.env.COMMAND_ERROR_RATE_THRESHOLD || 0.25);
+const commandErrorStreakSafeModeThreshold = Number(process.env.COMMAND_ERROR_STREAK_SAFEMODE_THRESHOLD || 6);
+const raidBurstThreshold = Number(process.env.RAID_BURST_THRESHOLD || 20);
 const smokeStatusMaxAgeMinutes = Number(process.env.SMOKE_STATUS_MAX_AGE_MINUTES || 30);
 const auditRetentionDays = Number(process.env.AUDIT_RETENTION_DAYS || 30);
 const incidentRetentionDays = Number(process.env.INCIDENT_RETENTION_DAYS || 180);
@@ -190,12 +192,19 @@ const commandCooldowns = new Map();
 const abuseUserWindow = new Map();
 const abuseChannelWindow = new Map();
 const toxicityWindow = new Map();
+const commandErrorStreaks = new Map();
 let jobWorkerRunning = false;
 let metricsServer = null;
 let commandWindowTotal = 0;
 let commandWindowErrors = 0;
 const cooldownMs = {
   default: 3000,
+  clear: 12000,
+  purge: 10000,
+  ticket: 5000,
+  modcall: 5000,
+  incident: 5000,
+  ops: 4000,
   roll: 4000,
   survivor: 6000,
   lfg: 5000,
@@ -307,17 +316,22 @@ const HELP_CATALOG = [
   { syntax: "/incident report", desc: "Generate post-incident summary report.", staffOnly: true, policyKey: "incident" },
   { syntax: "/incident postmortem_create", desc: "Draft a postmortem for an incident.", staffOnly: true, policyKey: "incident" },
   { syntax: "/incident postmortem_approve", desc: "Approve a postmortem draft.", staffOnly: true, policyKey: "incident" },
+  { syntax: "/incident wizard", desc: "Guided incident response checklist.", staffOnly: true, policyKey: "incident" },
   { syntax: "/audit", desc: "View/export command audit logs.", staffOnly: true, policyKey: "audit" },
   { syntax: "/backup", desc: "Create/list/restore bot data backups.", staffOnly: true, policyKey: "backup" },
   { syntax: "/ops", desc: "Operations status, maintenance, safemode, inventory.", staffOnly: true, policyKey: "ops" },
   { syntax: "/ops dashboard", desc: "Show dashboard and metrics endpoints.", staffOnly: true, policyKey: "ops" },
   { syntax: "/ops simulation", desc: "Toggle simulation mode for drills.", staffOnly: true, policyKey: "ops" },
   { syntax: "/ops remediate", desc: "Apply one-click incident remediation recipe to a channel.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/ops organize", desc: "Preview/apply server channel organization cleanup.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/ops analytics", desc: "Show command usage and error trends.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/ops syncpanel", desc: "Sync bot ops snapshot to admin panel.", staffOnly: true, policyKey: "ops" },
   { syntax: "/rolesync", desc: "Preview/validate role-sync rules.", staffOnly: true, policyKey: "ops" },
   { syntax: "/permissions audit", desc: "Check missing bot permissions in key channels.", staffOnly: true, policyKey: "ops" },
   { syntax: "/staffpanel", desc: "Open one-click staff action panel.", staffOnly: true, policyKey: "ops" },
   { syntax: "/staffquickstart", desc: "Post and pin staff quickstart guide.", staffOnly: true, policyKey: "ops" },
   { syntax: "/playbook", desc: "Show moderation SOP playbooks.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/modcall wizard", desc: "Guided moderation workflow checklist.", staffOnly: true, policyKey: "modcall" },
   { syntax: "/handoff", desc: "Generate shift handoff summary.", staffOnly: true, policyKey: "mod" },
   { syntax: "/staffstats", desc: "Show moderator performance stats.", staffOnly: true, policyKey: "mod" },
   { syntax: "/knowledge", desc: "Search rules/playbooks/FAQ knowledge snippets.", staffOnly: true, policyKey: "modcall" },
@@ -325,15 +339,20 @@ const HELP_CATALOG = [
   { syntax: "/announce", desc: "Post custom or preset announcements.", staffOnly: true, policyKey: "announce" },
   { syntax: "/announcepreset", desc: "Send preset announcement template.", staffOnly: true, policyKey: "announce" },
   { syntax: "/health", desc: "Run bot health checks.", staffOnly: true, policyKey: "health" },
+  { syntax: "/diagnose", desc: "Diagnose command policy, perms, cooldown, and context.", staffOnly: false },
   { syntax: "/metrics", desc: "Show runtime metrics summary.", staffOnly: true, policyKey: "metrics" },
   { syntax: "/poll", desc: "Create quick reaction poll.", staffOnly: true, policyKey: "poll" },
   { syntax: "/event", desc: "Create/list/announce/end events.", staffOnly: true, policyKey: "event" },
   { syntax: "/ticket close", desc: "Close ticket thread/channel.", staffOnly: true },
+  { syntax: "/ticket reopen", desc: "Reopen closed ticket by id.", staffOnly: true },
+  { syntax: "/ticket feedback", desc: "Submit post-ticket satisfaction feedback.", staffOnly: false },
   { syntax: "/onboard", desc: "Post onboarding panel.", staffOnly: true, policyKey: "onboard" },
   { syntax: "/raidmode", desc: "Toggle raid mode protections.", staffOnly: true, policyKey: "raidmode" },
   { syntax: "/reminder", desc: "Manage scheduled reminders.", staffOnly: true, policyKey: "reminder" },
   { syntax: "/activity", desc: "Show recent admin activity.", staffOnly: true, policyKey: "activity" },
   { syntax: "/purge", desc: "Bulk-delete recent messages.", staffOnly: true, policyKey: "purge" },
+  { syntax: "/clear messages", desc: "Batch clear up to 1000 recent messages from a channel.", staffOnly: true, policyKey: "purge" },
+  { syntax: "/clear nuke", desc: "Recreate a channel to fully wipe history.", staffOnly: true, policyKey: "purge" },
   { syntax: "/slowmode", desc: "Set channel slowmode.", staffOnly: true, policyKey: "slowmode" },
   { syntax: "/lock", desc: "Lock channel for @everyone.", staffOnly: true, policyKey: "lock" },
   { syntax: "/unlock", desc: "Unlock channel for @everyone.", staffOnly: true, policyKey: "unlock" }
@@ -921,7 +940,42 @@ async function notifyReporterUpdate(clientRef, row, message) {
   if (!row?.reporterId) return;
   const reporter = await clientRef.users.fetch(row.reporterId).catch(() => null);
   if (!reporter) return;
-  await reporter.send(`Case \`${row.id}\`: ${truncate(message, 1500)}`).catch(() => {});
+  const locale = getUserLocale(row.reporterId);
+  const prefix = formatLocalized(locale, "case_prefix", { id: row.id });
+  await reporter.send(`${prefix} ${truncate(message, 1500)}`).catch(() => {});
+}
+
+function formatLocalized(locale, key, params = {}) {
+  const l = String(locale || "en").toLowerCase();
+  const dict = {
+    en: {
+      case_prefix: "Case `{id}`:",
+      ticket_closed_dm: "Your ticket ({name}) was closed by staff. If needed, open a new ticket with /ticket create.",
+      ticket_reopened_dm: "Your ticket ({name}) has been reopened by staff.",
+      ticket_feedback_thanks: "Thanks for your feedback."
+    },
+    es: {
+      case_prefix: "Caso `{id}`:",
+      ticket_closed_dm: "Tu ticket ({name}) fue cerrado por el staff. Si lo necesitas, abre otro con /ticket create.",
+      ticket_reopened_dm: "Tu ticket ({name}) fue reabierto por el staff.",
+      ticket_feedback_thanks: "Gracias por tu comentario."
+    },
+    pt: {
+      case_prefix: "Caso `{id}`:",
+      ticket_closed_dm: "Seu ticket ({name}) foi fechado pela equipe. Se precisar, abra outro com /ticket create.",
+      ticket_reopened_dm: "Seu ticket ({name}) foi reaberto pela equipe.",
+      ticket_feedback_thanks: "Obrigado pelo seu feedback."
+    },
+    fr: {
+      case_prefix: "Dossier `{id}`:",
+      ticket_closed_dm: "Votre ticket ({name}) a ete ferme par l'equipe. Si besoin, ouvrez-en un autre avec /ticket create.",
+      ticket_reopened_dm: "Votre ticket ({name}) a ete rouvert par l'equipe.",
+      ticket_feedback_thanks: "Merci pour votre retour."
+    }
+  };
+  const table = dict[l] || dict.en;
+  const template = table[key] || dict.en[key] || key;
+  return template.replace(/\{(\w+)\}/g, (_, k) => String(params[k] ?? ""));
 }
 
 function addIncident(record) {
@@ -1124,6 +1178,14 @@ function isAbuseBlocked(interaction) {
   const userCount = hitWindow(abuseUserWindow, interaction.user.id, windowMs);
   const channelKey = interaction.channelId || "dm";
   const channelCount = hitWindow(abuseChannelWindow, channelKey, windowMs);
+  if (channelCount >= raidBurstThreshold) {
+    const community = loadCommunity();
+    if (!community.raidMode) {
+      community.raidMode = true;
+      saveCommunity(community);
+      sendOpsAlert("raid-burst", `Auto-enabled raid mode after burst detected in channel ${channelKey} (${channelCount}/${abuseWindowSeconds}s).`).catch(() => {});
+    }
+  }
   if (userCount > abuseUserMax || channelCount > abuseChannelMax) {
     metrics.abuseBlocked += 1;
     return { blocked: true, userCount, channelCount };
@@ -1157,6 +1219,67 @@ function getStaffRoleIdsForTicketing() {
     ticketSupportRoleId
   ].filter(Boolean));
   return Array.from(roleIds);
+}
+
+async function closeTicketConversation(interaction, channel) {
+  if (!channel) return false;
+
+  const isThread = channel.type === ChannelType.PublicThread || channel.type === ChannelType.PrivateThread;
+  const parent = isThread ? (channel.parent || null) : null;
+  const host = parent && parent.type === ChannelType.GuildText ? parent : channel;
+  const hostName = String(host?.name || "");
+  const isTicketChannel = host?.type === ChannelType.GuildText && hostName.startsWith("ticket-");
+  if (!isTicketChannel) return false;
+
+  const topicSource = String(host?.topic || channel?.topic || "");
+  const targetId = topicSource.match(/\((\d+)\)/)?.[1] || "";
+  const tickets = loadTickets();
+  let changed = false;
+  for (const row of tickets) {
+    if (row.status !== "open") continue;
+    if (row.channelId === channel.id || row.channelId === host.id) {
+      row.status = "closed";
+      row.closedAt = new Date().toISOString();
+      row.closedBy = interaction.user.id;
+      changed = true;
+    }
+  }
+  if (changed) saveTickets(tickets);
+
+  const closedTicket = loadTickets().find((x) => (x.channelId === channel.id || x.channelId === host.id) && x.status === "closed");
+
+  if (targetId) {
+    const user = await interaction.client.users.fetch(targetId).catch(() => null);
+    if (user) {
+      const locale = getUserLocale(targetId);
+      await user.send(formatLocalized(locale, "ticket_closed_dm", { name: host.name || "ticket" })).catch(() => {});
+      const closedId = closedTicket?.id || "your-ticket";
+      await user.send(`Feedback: run \`/ticket feedback ticket_id:${closedId} rating:5 note:...\` to rate support.`).catch(() => {});
+    }
+  }
+
+  if (closedTicket && logChannelId) {
+    const logChannel = await interaction.client.channels.fetch(logChannelId).catch(() => null);
+    if (logChannel && logChannel.isTextBased()) {
+      const summary = [
+        "Ticket Auto Summary",
+        `Ticket: \`${closedTicket.id || "unknown"}\``,
+        `User: <@${closedTicket.userId || targetId || "unknown"}>`,
+        `Subject: ${truncate(closedTicket.subject || "n/a", 120)}`,
+        `Urgency: ${closedTicket.urgency || "normal"}`,
+        `Category: ${closedTicket.triageCategory || "unknown"}`,
+        `Closed by: <@${interaction.user.id}>`
+      ].join("\n");
+      await sendMessageWithGuards(logChannel, { content: summary }, "ticket.close.summary");
+    }
+  }
+
+  await interaction.reply({ content: "Ticket chat closed and deleted.", ephemeral: true });
+  const deleted = await channel.delete(`Ticket closed by ${interaction.user.tag}`).then(() => true).catch(() => false);
+  if (!deleted) {
+    await interaction.editReply({ content: "Ticket marked closed, but I could not delete this channel/thread. Check bot Manage Channels permission." }).catch(() => {});
+  }
+  return true;
 }
 
 async function notifyUrgentStaff(guild, payload) {
@@ -1307,6 +1430,148 @@ function buildGuildInventory(guild) {
   };
 }
 
+const ORGANIZE_CATEGORY_BY_BUCKET = {
+  information: "INFORMATION",
+  community: "COMMUNITY",
+  support: "SUPPORT",
+  staff: "STAFF",
+  voice: "VOICE"
+};
+
+function classifyChannelBucket(channel) {
+  const name = String(channel?.name || "").toLowerCase();
+  const isVoice = channel?.type === ChannelType.GuildVoice || channel?.type === ChannelType.GuildStageVoice;
+  if (isVoice) return "voice";
+
+  if (name.startsWith("ticket-") || name.includes("ticket") || name.includes("support") || name.includes("modcall")) {
+    return "support";
+  }
+  if (/(staff|admin|moderator|mod-|mod_|ops|audit|secure|owner|internal|logs?)/i.test(name)) {
+    return "staff";
+  }
+  if (/(rules|welcome|announc|status|updates?|news|faq|how-?to|server|changelog|guide|readme)/i.test(name)) {
+    return "information";
+  }
+  return "community";
+}
+
+function normalizeChannelName(rawName) {
+  const next = String(rawName || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 90);
+  return next || "channel";
+}
+
+function planGuildOrganization(guild, opts = {}) {
+  const includeVoice = opts.includeVoice !== false;
+  const normalizeNames = Boolean(opts.normalizeNames);
+  const limit = Math.max(1, Math.min(Number(opts.limit || 30), 100));
+  const actions = [];
+
+  const channels = Array.from(guild.channels.cache.values())
+    .sort((a, b) => (a.rawPosition || 0) - (b.rawPosition || 0));
+
+  for (const channel of channels) {
+    if (!channel || channel.type === ChannelType.GuildCategory) continue;
+    if (channel.isThread?.()) continue;
+    const isVoice = channel.type === ChannelType.GuildVoice || channel.type === ChannelType.GuildStageVoice;
+    if (isVoice && !includeVoice) continue;
+    if (typeof channel.setParent !== "function") continue;
+
+    const bucket = classifyChannelBucket(channel);
+    const desiredCategory = ORGANIZE_CATEGORY_BY_BUCKET[bucket] || ORGANIZE_CATEGORY_BY_BUCKET.community;
+    const currentCategory = channel.parent?.type === ChannelType.GuildCategory
+      ? String(channel.parent.name || "").toUpperCase()
+      : "";
+    const moveNeeded = currentCategory !== desiredCategory;
+
+    let renameTo = "";
+    if (normalizeNames && channel.type !== ChannelType.GuildAnnouncement) {
+      const nextName = normalizeChannelName(channel.name);
+      if (nextName && nextName !== channel.name) renameTo = nextName;
+    }
+
+    if (!moveNeeded && !renameTo) continue;
+    actions.push({
+      channelId: channel.id,
+      channelName: channel.name,
+      channelType: String(channel.type),
+      bucket,
+      fromCategory: currentCategory || "none",
+      toCategory: desiredCategory,
+      renameTo
+    });
+    if (actions.length >= limit) break;
+  }
+
+  return {
+    includeVoice,
+    normalizeNames,
+    limit,
+    actions
+  };
+}
+
+async function ensureCategoryChannel(guild, categoryName, reason) {
+  const upper = String(categoryName || "").toUpperCase();
+  const existing = guild.channels.cache.find((c) =>
+    c.type === ChannelType.GuildCategory && String(c.name || "").toUpperCase() === upper
+  );
+  if (existing) return existing;
+  return guild.channels.create({
+    name: categoryName,
+    type: ChannelType.GuildCategory,
+    reason
+  }).catch(() => null);
+}
+
+async function applyGuildOrganizationPlan(guild, plan, actorTag = "system") {
+  const requiredCats = Array.from(new Set(plan.actions.map((x) => x.toCategory)));
+  const categories = {};
+  for (const name of requiredCats) {
+    const cat = await ensureCategoryChannel(guild, name, `Channel organization by ${actorTag}`);
+    if (cat) categories[name] = cat;
+  }
+
+  let moved = 0;
+  let renamed = 0;
+  let failed = 0;
+  const failures = [];
+
+  for (const action of plan.actions) {
+    const channel = await guild.channels.fetch(action.channelId).catch(() => null);
+    if (!channel) {
+      failed += 1;
+      failures.push(`${action.channelName}: channel missing`);
+      continue;
+    }
+
+    let ok = true;
+    const targetCategory = categories[action.toCategory] || null;
+    if (targetCategory && channel.parentId !== targetCategory.id) {
+      const movedOk = await channel.setParent(targetCategory.id, { lockPermissions: false }).then(() => true).catch(() => false);
+      if (movedOk) moved += 1;
+      else ok = false;
+    }
+
+    if (action.renameTo && channel.name !== action.renameTo) {
+      const renamedOk = await channel.setName(action.renameTo, `Channel organization by ${actorTag}`).then(() => true).catch(() => false);
+      if (renamedOk) renamed += 1;
+      else ok = false;
+    }
+
+    if (!ok) {
+      failed += 1;
+      if (failures.length < 10) failures.push(`${action.channelName}: insufficient permissions or conflict`);
+    }
+  }
+
+  return { moved, renamed, failed, failures };
+}
+
 async function sendMessageWithGuards(channel, payload, context, reqId = "") {
   if (!channel || !channel.isTextBased()) return null;
   if (stagingMode || dryRunMode) {
@@ -1318,7 +1583,27 @@ async function sendMessageWithGuards(channel, payload, context, reqId = "") {
     });
     return null;
   }
-  return channel.send(payload);
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await channel.send(payload);
+    } catch (err) {
+      const status = Number(err?.status || err?.code || 0);
+      const retryable = status === 429 || status >= 500 || String(err?.message || "").toLowerCase().includes("timeout");
+      if (!retryable || attempt === maxAttempts) {
+        logEvent("warn", "dispatch.failed", {
+          reqId,
+          context,
+          channelId: channel.id,
+          attempt,
+          error: truncate(err instanceof Error ? err.message : String(err), 220)
+        });
+        return null;
+      }
+      await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+    }
+  }
+  return null;
 }
 
 async function processPendingJobs() {
@@ -1400,7 +1685,8 @@ function startMetricsServer() {
           modCallsCreated: metrics.modCallsCreated,
           modCallsClaimed: metrics.modCallsClaimed,
           modCallsClosed: metrics.modCallsClosed
-        }
+        },
+        analytics: computeCommandAnalytics(8, 7)
       };
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
       res.end(JSON.stringify(payload, null, 2));
@@ -1612,6 +1898,65 @@ function loadAuditEntries(limit = 20) {
   }
 }
 
+function verifyAuditChain(limit = 2000) {
+  try {
+    if (!fs.existsSync(auditLogFile)) return { ok: true, checked: 0, failedAt: -1 };
+    const lines = fs.readFileSync(auditLogFile, "utf-8").trim().split("\n").filter(Boolean).slice(-limit);
+    let prevHash = "";
+    for (let i = 0; i < lines.length; i += 1) {
+      const row = JSON.parse(lines[i]);
+      const expected = sha256(JSON.stringify({
+        reqId: row.reqId || "",
+        timeUtc: row.timeUtc || "",
+        command: row.command || "",
+        status: row.status || "",
+        userId: row.userId || "",
+        prevHash
+      }));
+      if ((row.prevHash || "") !== prevHash || (row.hash || "") !== expected) {
+        return { ok: false, checked: i + 1, failedAt: i + 1 };
+      }
+      prevHash = row.hash || "";
+    }
+    return { ok: true, checked: lines.length, failedAt: -1 };
+  } catch {
+    return { ok: false, checked: 0, failedAt: 0 };
+  }
+}
+
+function computeCommandAnalytics(limit = 10, days = 7) {
+  const max = Math.max(3, Math.min(Number(limit || 10), 20));
+  const since = Date.now() - (Math.max(1, Number(days || 7)) * 24 * 60 * 60 * 1000);
+  const rows = loadAuditEntries(5000).filter((x) => new Date(x.timeUtc || 0).getTime() >= since);
+  const total = rows.length;
+  const errors = rows.filter((x) => x.status === "error").length;
+  const denied = rows.filter((x) => x.status === "denied").length;
+  const byCommand = {};
+  const byRole = { owner: 0, admin: 0, mod: 0, user: 0 };
+  for (const row of rows) {
+    const key = String(row.command || "unknown");
+    if (!byCommand[key]) byCommand[key] = { total: 0, error: 0, avgMs: 0, _sum: 0 };
+    byCommand[key].total += 1;
+    if (row.status === "error") byCommand[key].error += 1;
+    byCommand[key]._sum += Number(row.durationMs || 0);
+    const note = String(row.note || "").toLowerCase();
+    if (note.includes("owner")) byRole.owner += 1;
+    else if (note.includes("admin")) byRole.admin += 1;
+    else if (note.includes("mod")) byRole.mod += 1;
+    else byRole.user += 1;
+  }
+  const top = Object.entries(byCommand)
+    .map(([command, v]) => ({
+      command,
+      total: v.total,
+      errorRate: v.total ? Math.round((v.error / v.total) * 1000) / 10 : 0,
+      avgMs: v.total ? Math.round(v._sum / v.total) : 0
+    }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, max);
+  return { total, errors, denied, byRole, top };
+}
+
 function createDataBackup(label, actorId) {
   fs.mkdirSync(backupsDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -1754,45 +2099,59 @@ async function adminFetch(pathname, ctx = {}) {
   bumpMetric("apiCall");
   const reqId = ctx.reqId || randomUUID();
   const method = ctx.method || "GET";
-  const headers = {
-    "X-Request-ID": reqId
-  };
-
+  const headers = { "X-Request-ID": reqId };
   const authHeader = getAdminAuthHeader();
-  if (authHeader) {
-    headers.Authorization = authHeader;
-  }
+  if (authHeader) headers.Authorization = authHeader;
 
-  const startedAt = Date.now();
-  const res = await fetch(`${apiBase}${pathname}`, {
-    method,
-    headers: {
-      ...headers,
-      ...(ctx.body ? { "Content-Type": "application/json" } : {})
-    },
-    body: ctx.body ? JSON.stringify(ctx.body) : undefined
-  });
-  if (!res.ok) {
-    bumpMetric("apiError");
-    logEvent("warn", "admin.fetch.error", {
-      reqId,
-      pathname,
-      status: res.status,
-      durationMs: Date.now() - startedAt
-    });
-    throw new Error(`${res.status} ${await res.text()}`);
+  let lastError = "";
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const startedAt = Date.now();
+    try {
+      const res = await fetch(`${apiBase}${pathname}`, {
+        method,
+        headers: {
+          ...headers,
+          ...(ctx.body ? { "Content-Type": "application/json" } : {})
+        },
+        body: ctx.body ? JSON.stringify(ctx.body) : undefined
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        const retryable = res.status === 429 || res.status >= 500;
+        if (!retryable || attempt === 3) {
+          bumpMetric("apiError");
+          logEvent("warn", "admin.fetch.error", {
+            reqId,
+            pathname,
+            status: res.status,
+            attempt,
+            durationMs: Date.now() - startedAt
+          });
+          throw new Error(`${res.status} ${body}`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, attempt * 350));
+        continue;
+      }
+      logEvent("info", "admin.fetch.ok", {
+        reqId,
+        pathname,
+        method,
+        status: res.status,
+        attempt,
+        durationMs: Date.now() - startedAt
+      });
+      if (res.status === 204) return null;
+      const text = await res.text();
+      if (!text) return null;
+      return JSON.parse(text);
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      if (attempt === 3) break;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 350));
+    }
   }
-  logEvent("info", "admin.fetch.ok", {
-    reqId,
-    pathname,
-    method,
-    status: res.status,
-    durationMs: Date.now() - startedAt
-  });
-  if (res.status === 204) return null;
-  const text = await res.text();
-  if (!text) return null;
-  return JSON.parse(text);
+  bumpMetric("apiError");
+  throw new Error(lastError || "Admin API request failed.");
 }
 
 function getAdminAuthHeader() {
@@ -1928,19 +2287,34 @@ async function runPermissionAudit(guild) {
   for (const check of channelChecks) {
     const channel = await guild.channels.fetch(check.id).catch(() => null);
     if (!channel || !channel.isTextBased()) {
-      rows.push({ label: `${check.label} #${check.id}`, ok: false, missing: ["Channel not found or not text"] });
+      rows.push({
+        label: `${check.label} #${check.id}`,
+        ok: false,
+        missing: ["Channel not found or not text"],
+        suggestion: `Verify channel id for ${check.label} and update bot .env if needed.`
+      });
       continue;
     }
     const perms = channel.permissionsFor(botMember);
     const missing = requiredChannelPerms.filter((p) => !perms?.has(PermissionsBitField.Flags[p]));
-    rows.push({ label: `${check.label} #${channel.name || channel.id}`, ok: missing.length === 0, missing });
+    rows.push({
+      label: `${check.label} #${channel.name || channel.id}`,
+      ok: missing.length === 0,
+      missing,
+      suggestion: missing.length ? `Grant ${missing.join(", ")} to bot role in #${channel.name || channel.id}.` : ""
+    });
   }
 
   const guildMissing = [];
   if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) guildMissing.push("ManageRoles");
   if (!botMember.permissions.has(PermissionsBitField.Flags.ModerateMembers)) guildMissing.push("ModerateMembers");
   if (!botMember.permissions.has(PermissionsBitField.Flags.ManageChannels)) guildMissing.push("ManageChannels");
-  rows.unshift({ label: "Guild-wide Permissions", ok: guildMissing.length === 0, missing: guildMissing });
+  rows.unshift({
+    label: "Guild-wide Permissions",
+    ok: guildMissing.length === 0,
+    missing: guildMissing,
+    suggestion: guildMissing.length ? `Grant guild permissions to bot role: ${guildMissing.join(", ")}.` : ""
+  });
   return rows;
 }
 
@@ -2617,8 +2991,7 @@ client.on("interactionCreate", async (interaction) => {
         .filter((x) => x.staffOnly && canSee(x))
         .map((x) => `\`${x.syntax}\` - ${x.desc}`);
 
-      await interaction.reply({
-        content: [
+      const helpContent = [
           "Grey Hour RP Bot Help",
           "",
           "**Public Commands You Can Use**",
@@ -2630,6 +3003,39 @@ client.on("interactionCreate", async (interaction) => {
           ] : []),
           "",
           "Tip: command visibility is role/policy aware."
+        ].join("\n");
+
+      await interaction.reply({
+        content: truncate(helpContent, 1900),
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (interaction.commandName === "diagnose") {
+      const targetCommand = interaction.options.getString("command", true).replace(/^\//, "").trim().toLowerCase();
+      const targetChannel = interaction.options.getChannel("channel") || interaction.channel;
+      const inGuild = interaction.inGuild() && interaction.guild;
+      const member = inGuild ? await interaction.guild.members.fetch(interaction.user.id).catch(() => null) : null;
+      const staff = Boolean(member && isStaffMember(interaction, member));
+      const policyAllowed = Boolean(member && hasPolicyAccess(member, targetCommand));
+      const cooldownWait = checkAndSetCooldown(interaction, targetCommand);
+      const perms = (targetChannel && member && targetChannel.isTextBased()) ? targetChannel.permissionsFor(member) : null;
+      const botMember = inGuild ? await interaction.guild.members.fetch(client.user.id).catch(() => null) : null;
+      const botPerms = (targetChannel && botMember && targetChannel.isTextBased()) ? targetChannel.permissionsFor(botMember) : null;
+      const required = ["ViewChannel", "SendMessages", "EmbedLinks", "ReadMessageHistory"];
+      const userMissing = required.filter((p) => !perms?.has(PermissionsBitField.Flags[p]));
+      const botMissing = required.filter((p) => !botPerms?.has(PermissionsBitField.Flags[p]));
+      await interaction.reply({
+        content: [
+          `Diagnose /${targetCommand}`,
+          `Guild context: ${inGuild ? "yes" : "no"}`,
+          `Staff: ${staff ? "yes" : "no"}`,
+          `Policy access: ${policyAllowed ? "allowed" : "denied/unknown"}`,
+          `Cooldown: ${cooldownWait > 0 ? `${cooldownWait}s remaining` : "ready"}`,
+          `Channel: ${targetChannel ? `<#${targetChannel.id}>` : "none"}`,
+          `Your missing perms: ${userMissing.length ? userMissing.join(", ") : "none"}`,
+          `Bot missing perms: ${botMissing.length ? botMissing.join(", ") : "none"}`
         ].join("\n"),
         ephemeral: true
       });
@@ -3657,6 +4063,8 @@ client.on("interactionCreate", async (interaction) => {
         const reason = interaction.options.getString("reason") || "Resolved by moderator.";
         const row = data.cases.find((x) => x.id === id);
         if (!row) {
+          const closedTicket = await closeTicketConversation(interaction, interaction.channel);
+          if (closedTicket) return;
           await interaction.reply({ content: "Case not found.", ephemeral: true });
           return;
         }
@@ -3805,6 +4213,21 @@ client.on("interactionCreate", async (interaction) => {
           content: `Exported case bundle for \`${row.id}\`.`,
           files: [{ attachment: Buffer.from(JSON.stringify(bundle, null, 2), "utf-8"), name: file }]
         });
+        return;
+      }
+
+      if (sub === "wizard") {
+        const scenario = interaction.options.getString("scenario") || "harassment";
+        const steps = [
+          `Modcall Wizard (${scenario})`,
+          "1) Intake: gather who/what/where evidence.",
+          "2) Create case with `/modcall create` and attach evidence.",
+          "3) Claim or assign with `/modcall claim` or `/case assign-next`.",
+          "4) Keep reporter updated via `/modcall status`.",
+          "5) Apply controls (warn/timeout/lockdown) if needed.",
+          "6) Close with `/modcall close` and clear resolution notes."
+        ];
+        await interaction.reply({ content: steps.join("\n"), ephemeral: true });
         return;
       }
 
@@ -4116,6 +4539,17 @@ client.on("interactionCreate", async (interaction) => {
         });
         return;
       }
+      if (sub === "verify") {
+        const limit = Math.max(50, Math.min(interaction.options.getInteger("limit") || 1000, 5000));
+        const result = verifyAuditChain(limit);
+        await interaction.reply({
+          content: result.ok
+            ? `Audit chain verified. Checked ${result.checked} entries.`
+            : `Audit chain verification FAILED at entry ${result.failedAt} (checked ${result.checked}).`,
+          ephemeral: true
+        });
+        return;
+      }
     }
 
     if (interaction.commandName === "incident") {
@@ -4324,6 +4758,21 @@ client.on("interactionCreate", async (interaction) => {
           ].join("\n"),
           ephemeral: true
         });
+        return;
+      }
+
+      if (sub === "wizard") {
+        const scenario = interaction.options.getString("scenario") || "harassment";
+        const steps = [
+          `Incident Wizard (${scenario})`,
+          "1) Contain immediate harm and preserve evidence.",
+          "2) Create incident record with `/incident create`.",
+          "3) Link related cases using `/incident link`.",
+          "4) Correlate user behavior with `/incident correlate`.",
+          "5) Resolve with `/incident resolve` once actions complete.",
+          "6) Draft postmortem for major incidents (`/incident postmortem_create`)."
+        ];
+        await interaction.reply({ content: steps.join("\n"), ephemeral: true });
         return;
       }
     }
@@ -4555,6 +5004,116 @@ client.on("interactionCreate", async (interaction) => {
           `Top roles: ${inv.roles.slice(0, 8).map((r) => r.name).join(", ") || "none"}`
         ].join("\n");
         await interaction.editReply({ content: summary });
+        return;
+      }
+
+      if (sub === "organize") {
+        if (!interaction.inGuild() || !interaction.guild) {
+          await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+          return;
+        }
+        const mode = interaction.options.getString("mode", true);
+        const apply = mode === "apply";
+        const includeVoice = interaction.options.getBoolean("include_voice");
+        const normalizeNames = interaction.options.getBoolean("normalize_names") || false;
+        const limit = Math.max(1, Math.min(interaction.options.getInteger("limit") || 30, 100));
+
+        await interaction.deferReply({ ephemeral: true });
+        await interaction.guild.channels.fetch();
+        const plan = planGuildOrganization(interaction.guild, {
+          includeVoice: includeVoice !== false,
+          normalizeNames,
+          limit
+        });
+
+        if (!plan.actions.length) {
+          await interaction.editReply({
+            content: "No organization changes needed. Your channels already match the current rules."
+          });
+          return;
+        }
+
+        const previewLines = plan.actions.slice(0, 20).map((x) =>
+          `#${x.channelName}: ${x.fromCategory} -> ${x.toCategory}${x.renameTo ? ` | rename -> ${x.renameTo}` : ""}`
+        );
+        if (!apply || isSimulationModeEnabled()) {
+          await interaction.editReply({
+            content: [
+              apply && isSimulationModeEnabled() ? "Simulation mode is enabled. Showing preview only." : "Organization preview:",
+              `Planned channels: ${plan.actions.length}${plan.actions.length >= limit ? ` (limited to ${limit})` : ""}`,
+              ...previewLines,
+              plan.actions.length > 20 ? `...and ${plan.actions.length - 20} more` : "",
+              "Run `/ops organize mode:apply` to execute."
+            ].filter(Boolean).join("\n")
+          });
+          return;
+        }
+
+        const result = await applyGuildOrganizationPlan(interaction.guild, plan, interaction.user.tag);
+        addIncident({
+          severity: "low",
+          userId: interaction.user.id,
+          reason: `ops organize apply moved=${result.moved} renamed=${result.renamed} failed=${result.failed}`,
+          createdBy: interaction.user.id,
+          auto: true
+        });
+        await interaction.editReply({
+          content: [
+            "Organization applied.",
+            `Planned: ${plan.actions.length}`,
+            `Moved: ${result.moved}`,
+            `Renamed: ${result.renamed}`,
+            `Failed: ${result.failed}`,
+            result.failures.length ? `Failures: ${result.failures.join(" | ")}` : ""
+          ].filter(Boolean).join("\n")
+        });
+        return;
+      }
+
+      if (sub === "analytics") {
+        const limit = Math.max(3, Math.min(interaction.options.getInteger("limit") || 10, 20));
+        const report = computeCommandAnalytics(limit, 7);
+        const lines = [
+          "Command Analytics (last 7d)",
+          `Total: ${report.total}`,
+          `Errors: ${report.errors}`,
+          `Denied: ${report.denied}`,
+          "Top commands:"
+        ];
+        for (const row of report.top) {
+          lines.push(`- /${row.command}: ${row.total} calls | err ${row.errorRate}% | avg ${row.avgMs}ms`);
+        }
+        await interaction.reply({ content: truncate(lines.join("\n"), 1900), ephemeral: true });
+        return;
+      }
+
+      if (sub === "syncpanel") {
+        await interaction.deferReply({ ephemeral: true });
+        const jobs = loadJobs();
+        const pendingJobs = jobs.filter((x) => x.status === "pending").length;
+        const modState = loadModCallsState();
+        const openCases = modState.cases.filter((x) => x.status !== "closed" && x.status !== "cancelled").length;
+        const payload = {
+          generatedAt: new Date().toISOString(),
+          deployTag,
+          mode: dryRunMode ? "dry-run" : (stagingMode ? "staging" : "live"),
+          simulationMode: isSimulationModeEnabled(),
+          queue: { pending: pendingJobs, failed: metrics.queueFailed },
+          modcalls: { open: openCases, created: metrics.modCallsCreated, closed: metrics.modCallsClosed },
+          commands: { total: metrics.commandsTotal, errors: metrics.commandErrors },
+          analytics: computeCommandAnalytics(8, 7)
+        };
+        try {
+          await adminFetch("/api/admin/content/discord-ops", {
+            reqId,
+            method: "PUT",
+            body: payload
+          });
+          await interaction.editReply({ content: "Ops snapshot synced to admin panel content (`/api/admin/content/discord-ops`)." });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          await interaction.editReply({ content: `Sync failed: ${truncate(msg, 300)}` });
+        }
         return;
       }
     }
@@ -4850,9 +5409,12 @@ client.on("interactionCreate", async (interaction) => {
       if (!staff) return;
       const sub = interaction.options.getSubcommand();
       if (sub === "audit") {
+        const detailed = interaction.options.getBoolean("detailed") || false;
         await interaction.deferReply({ ephemeral: true });
         const rows = await runPermissionAudit(interaction.guild);
-        const text = rows.map((x) => `${x.ok ? "✅" : "❌"} ${x.label}: ${formatPermAuditMissing(x.missing)}`).join("\n");
+        const text = rows.map((x) =>
+          `${x.ok ? "✅" : "❌"} ${x.label}: ${formatPermAuditMissing(x.missing)}${detailed && x.suggestion ? `\n  fix: ${x.suggestion}` : ""}`
+        ).join("\n");
         await interaction.editReply({ content: truncate(text, 1900) });
         return;
       }
@@ -5168,6 +5730,21 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.commandName === "ticket") {
       const sub = interaction.options.getSubcommand();
 
+      if (sub === "wizard") {
+        await interaction.reply({
+          content: [
+            "Ticket Wizard",
+            "1) Summarize issue in one sentence.",
+            "2) Add timeline and impacted users/systems.",
+            "3) Attach evidence/screenshots if available.",
+            "4) Use `/ticket create` with urgency and details.",
+            "5) For structured intake, run `/ticket intake`."
+          ].join("\n"),
+          ephemeral: true
+        });
+        return;
+      }
+
       if (sub === "intake") {
         const modal = new ModalBuilder()
           .setCustomId("ticket:intake")
@@ -5356,33 +5933,64 @@ client.on("interactionCreate", async (interaction) => {
           await interaction.reply({ content: "Invalid ticket channel.", ephemeral: true });
           return;
         }
-        if (channel.type === ChannelType.PublicThread || channel.type === ChannelType.PrivateThread) {
-          await channel.setLocked(true, `Closed by ${interaction.user.tag}`).catch(() => {});
-          await channel.setArchived(true, `Closed by ${interaction.user.tag}`).catch(() => {});
-          await interaction.reply({ content: "Ticket thread closed.", ephemeral: true });
-          return;
-        }
-        if (channel.type === ChannelType.GuildText && String(channel.name || "").startsWith("ticket-")) {
-          const targetId = channel.topic?.match(/\((\d+)\)/)?.[1] || "";
-          const tickets = loadTickets();
-          const ticketRow = tickets.find((x) => x.channelId === channel.id && x.status === "open");
-          if (ticketRow) {
-            ticketRow.status = "closed";
-            ticketRow.closedAt = new Date().toISOString();
-            ticketRow.closedBy = interaction.user.id;
-            saveTickets(tickets);
-          }
-          if (targetId) {
-            const user = await interaction.client.users.fetch(targetId).catch(() => null);
-            if (user) {
-              await user.send(`Your ticket (${channel.name}) was closed by staff. If needed, open a new ticket with /ticket create.`).catch(() => {});
-            }
-          }
-          await interaction.reply({ content: "Ticket channel closed.", ephemeral: true });
-          await channel.delete(`Ticket closed by ${interaction.user.tag}`).catch(() => {});
-          return;
-        }
+        const closed = await closeTicketConversation(interaction, channel);
+        if (closed) return;
         await interaction.reply({ content: "Run this inside a ticket channel/thread to close it.", ephemeral: true });
+        return;
+      }
+
+      if (sub === "reopen") {
+        const member = await requireStaff(interaction);
+        if (!member) return;
+        const id = interaction.options.getString("id", true);
+        const tickets = loadTickets();
+        const row = tickets.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: `Ticket not found: ${id}`, ephemeral: true });
+          return;
+        }
+        row.status = "open";
+        row.reopenedAt = new Date().toISOString();
+        row.reopenedBy = interaction.user.id;
+        saveTickets(tickets);
+        if (row.userId) {
+          const user = await interaction.client.users.fetch(row.userId).catch(() => null);
+          if (user) {
+            const locale = getUserLocale(row.userId);
+            await user.send(formatLocalized(locale, "ticket_reopened_dm", { name: row.subject || row.id })).catch(() => {});
+          }
+        }
+        await interaction.reply({ content: `Ticket reopened: \`${row.id}\``, ephemeral: true });
+        return;
+      }
+
+      if (sub === "feedback") {
+        const ticketId = interaction.options.getString("ticket_id", true);
+        const rating = Math.max(1, Math.min(interaction.options.getInteger("rating", true), 5));
+        const note = truncate(interaction.options.getString("note") || "", 400);
+        const tickets = loadTickets();
+        const row = tickets.find((x) => x.id === ticketId && x.userId === interaction.user.id);
+        if (!row) {
+          await interaction.reply({ content: "Ticket not found for your account.", ephemeral: true });
+          return;
+        }
+        row.feedback = {
+          rating,
+          note,
+          at: new Date().toISOString(),
+          by: interaction.user.id
+        };
+        saveTickets(tickets);
+        if (logChannelId) {
+          const logChannel = await interaction.client.channels.fetch(logChannelId).catch(() => null);
+          if (logChannel && logChannel.isTextBased()) {
+            await sendMessageWithGuards(logChannel, {
+              content: `Ticket feedback: \`${ticketId}\` by <@${interaction.user.id}> • rating ${rating}/5${note ? ` • ${note}` : ""}`
+            }, "ticket.feedback");
+          }
+        }
+        const locale = getUserLocale(interaction.user.id);
+        await interaction.reply({ content: formatLocalized(locale, "ticket_feedback_thanks"), ephemeral: true });
         return;
       }
     }
@@ -5508,6 +6116,145 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
+    if (interaction.commandName === "clear") {
+      const member = await requireStaff(interaction, "purge");
+      if (!member) return;
+      if (!interaction.inGuild() || !interaction.guild) {
+        await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+        return;
+      }
+
+      const sub = interaction.options.getSubcommand();
+      const optChannel = interaction.options.getChannel("channel");
+      const target = optChannel || interaction.channel;
+      if (!target || !target.isTextBased()) {
+        await interaction.reply({ content: "Target must be a text-based channel.", ephemeral: true });
+        return;
+      }
+
+      if (sub === "messages") {
+        const amount = interaction.options.getInteger("amount", true);
+        const reason = truncate(interaction.options.getString("reason") || "No reason provided.", 220);
+        const dryRun = interaction.options.getBoolean("dry_run") || false;
+        if (amount < 1 || amount > 1000) {
+          await interaction.reply({ content: "Amount must be between 1 and 1000.", ephemeral: true });
+          return;
+        }
+        if (typeof target.bulkDelete !== "function") {
+          await interaction.reply({ content: "Bulk delete is not supported for that channel type.", ephemeral: true });
+          return;
+        }
+        if (dryRun || isSimulationModeEnabled()) {
+          await interaction.reply({
+            content: `Dry run: would clear up to ${amount} recent message(s) in <#${target.id}>. Reason: ${reason}`,
+            ephemeral: true
+          });
+          return;
+        }
+
+        let remaining = amount;
+        let deletedTotal = 0;
+        while (remaining > 0) {
+          const batchSize = Math.min(100, remaining);
+          const deleted = await target.bulkDelete(batchSize, true).catch(() => null);
+          if (!deleted || deleted.size === 0) break;
+          deletedTotal += deleted.size;
+          remaining -= deleted.size;
+          if (deleted.size < batchSize) break;
+        }
+
+        if (!deletedTotal) {
+          await interaction.reply({ content: "No messages were deleted. Messages older than 14 days cannot be bulk deleted.", ephemeral: true });
+          return;
+        }
+
+        addIncident({
+          severity: "medium",
+          userId: interaction.user.id,
+          reason: `clear messages ${deletedTotal} in #${target.id} (${reason})`,
+          createdBy: interaction.user.id,
+          auto: true
+        });
+        if (logChannelId) {
+          const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+          if (logChannel && logChannel.isTextBased()) {
+            const embed = new EmbedBuilder()
+              .setTitle("Staff Clear Action")
+              .setColor(0xf59e0b)
+              .addFields(
+                { name: "Mode", value: "messages", inline: true },
+                { name: "Deleted", value: String(deletedTotal), inline: true },
+                { name: "Channel", value: `<#${target.id}>`, inline: true },
+                { name: "By", value: `<@${interaction.user.id}>`, inline: true },
+                { name: "Reason", value: reason, inline: false }
+              )
+              .setTimestamp();
+            await sendMessageWithGuards(logChannel, { embeds: [embed] }, "clear.messages.log", reqId);
+          }
+        }
+        await interaction.reply({ content: `Cleared ${deletedTotal} message(s) in <#${target.id}>.`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "nuke") {
+        const confirm = String(interaction.options.getString("confirm", true) || "").trim();
+        const reason = truncate(interaction.options.getString("reason") || "No reason provided.", 220);
+        const dryRun = interaction.options.getBoolean("dry_run") || false;
+        if (confirm !== "NUKE") {
+          await interaction.reply({ content: "Confirmation failed. Type `NUKE` exactly.", ephemeral: true });
+          return;
+        }
+        if (target.type !== ChannelType.GuildText && target.type !== ChannelType.GuildAnnouncement) {
+          await interaction.reply({ content: "Nuke supports server text/announcement channels only.", ephemeral: true });
+          return;
+        }
+        if (dryRun || isSimulationModeEnabled()) {
+          await interaction.reply({
+            content: `Dry run: would nuke <#${target.id}> and recreate it. Reason: ${reason}`,
+            ephemeral: true
+          });
+          return;
+        }
+
+        await interaction.reply({ content: `Nuking <#${target.id}>...`, ephemeral: true });
+        const cloned = await target.clone({ reason: `Channel nuke by ${interaction.user.tag}` }).catch(() => null);
+        if (!cloned) {
+          await interaction.editReply({ content: "Failed to clone channel for nuke." });
+          return;
+        }
+
+        await cloned.setPosition(target.position).catch(() => null);
+        await target.delete(`Channel nuke by ${interaction.user.tag}`).catch(() => null);
+
+        addIncident({
+          severity: "high",
+          userId: interaction.user.id,
+          reason: `clear nuke channel ${target.id} -> ${cloned.id} (${reason})`,
+          createdBy: interaction.user.id,
+          auto: true
+        });
+        if (logChannelId) {
+          const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+          if (logChannel && logChannel.isTextBased()) {
+            const embed = new EmbedBuilder()
+              .setTitle("Staff Clear Action")
+              .setColor(0xef4444)
+              .addFields(
+                { name: "Mode", value: "nuke", inline: true },
+                { name: "Old Channel", value: `\`${target.id}\``, inline: true },
+                { name: "New Channel", value: `<#${cloned.id}>`, inline: true },
+                { name: "By", value: `<@${interaction.user.id}>`, inline: true },
+                { name: "Reason", value: reason, inline: false }
+              )
+              .setTimestamp();
+            await sendMessageWithGuards(logChannel, { embeds: [embed] }, "clear.nuke.log", reqId);
+          }
+        }
+        await interaction.editReply({ content: `Channel nuked successfully. New channel: <#${cloned.id}>` });
+        return;
+      }
+    }
+
     if (interaction.commandName === "slowmode") {
       const member = await requireStaff(interaction);
       if (!member) return;
@@ -5581,6 +6328,13 @@ client.on("interactionCreate", async (interaction) => {
     auditStatus = "error";
     auditNote = err instanceof Error ? truncate(err.message, 220) : truncate(String(err), 220);
     bumpMetric("commandError");
+    const cmd = interaction.commandName || "unknown";
+    const streak = (commandErrorStreaks.get(cmd) || 0) + 1;
+    commandErrorStreaks.set(cmd, streak);
+    if (streak >= commandErrorStreakSafeModeThreshold && !loadAdminSafeModeState().enabled) {
+      setAdminSafeMode(true, interaction.user?.id || "");
+      await sendOpsAlert("auto-safemode", `Auto-enabled safe mode after ${streak} consecutive /${cmd} errors.`);
+    }
     await sendOpsAlert("command-error", `/${interaction.commandName || "unknown"} failed: ${auditNote}`, reqId);
     logEvent("error", "command.error", {
       reqId,
@@ -5593,6 +6347,10 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ content: "Error processing command.", ephemeral: true });
     }
   } finally {
+    const cmd = interaction.commandName || "unknown";
+    if (auditStatus !== "error") {
+      commandErrorStreaks.set(cmd, 0);
+    }
     const durationMs = Date.now() - auditStartedAt;
     if (durationMs <= 200) metrics.commandLatency.le_200 += 1;
     else if (durationMs <= 500) metrics.commandLatency.le_500 += 1;
@@ -6199,6 +6957,27 @@ async function runRetentionMaintenance() {
     modState.cases = keptCases;
     saveModCallsState(modState);
     logEvent("info", "retention.modcalls.pruned", { removed: beforeModCases - keptCases.length });
+  }
+
+  const tickets = loadTickets();
+  const ticketCutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  let staleClosed = 0;
+  for (const row of tickets) {
+    const created = new Date(row.createdAt || 0).getTime();
+    if (row.status === "open" && Number.isFinite(created) && created < ticketCutoff) {
+      row.status = "stale";
+      row.closedAt = new Date().toISOString();
+      row.closeReason = "auto-stale-retention";
+      staleClosed += 1;
+    }
+  }
+  const keptTickets = tickets.filter((row) => {
+    const ts = new Date(row.createdAt || 0).getTime();
+    return Number.isFinite(ts) && ts >= (Date.now() - 180 * 24 * 60 * 60 * 1000);
+  });
+  if (staleClosed || keptTickets.length !== tickets.length) {
+    saveTickets(keptTickets);
+    logEvent("info", "retention.tickets.pruned", { staleClosed, removed: tickets.length - keptTickets.length });
   }
 }
 

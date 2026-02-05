@@ -25,6 +25,15 @@ const commands = [
   new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
   new SlashCommandBuilder().setName("help").setDescription("Show bot commands"),
   new SlashCommandBuilder()
+    .setName("diagnose")
+    .setDescription("Diagnose command readiness and permissions")
+    .addStringOption((opt) =>
+      opt.setName("command").setDescription("Command name without slash").setRequired(true)
+    )
+    .addChannelOption((opt) =>
+      opt.setName("channel").setDescription("Optional channel context").setRequired(false)
+    ),
+  new SlashCommandBuilder()
     .setName("health")
     .setDescription("Run bot health checks (staff only)")
     .addBooleanOption((opt) =>
@@ -118,6 +127,42 @@ const commands = [
         .addChannelOption((opt) =>
           opt.setName("channel").setDescription("Target channel (default current)").setRequired(false)
         )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("organize")
+        .setDescription("Clean up and organize channels by category")
+        .addStringOption((opt) =>
+          opt.setName("mode")
+            .setDescription("Preview or apply changes")
+            .setRequired(true)
+            .addChoices(
+              { name: "preview", value: "preview" },
+              { name: "apply", value: "apply" }
+            )
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("normalize_names").setDescription("Also normalize channel names").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("include_voice").setDescription("Include voice/stage channels").setRequired(false)
+        )
+        .addIntegerOption((opt) =>
+          opt.setName("limit").setDescription("Max channels to reorganize (1-100)").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("analytics")
+        .setDescription("Show command analytics and error trends")
+        .addIntegerOption((opt) =>
+          opt.setName("limit").setDescription("Top commands to show (3-20)").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("syncpanel")
+        .setDescription("Sync bot operations snapshot to admin panel content")
     ),
   new SlashCommandBuilder()
     .setName("rolesync")
@@ -233,6 +278,22 @@ const commands = [
         .setName("export")
         .setDescription("Export a full case bundle")
         .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("wizard")
+        .setDescription("Guided moderation case workflow")
+        .addStringOption((opt) =>
+          opt.setName("scenario")
+            .setDescription("Scenario type")
+            .setRequired(false)
+            .addChoices(
+              { name: "harassment", value: "harassment" },
+              { name: "cheating", value: "cheating" },
+              { name: "spam", value: "spam" },
+              { name: "raid", value: "raid" }
+            )
+        )
     )
     .addSubcommand((sub) =>
       sub
@@ -397,7 +458,13 @@ const commands = [
     .setName("permissions")
     .setDescription("Audit bot permissions in key channels")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addSubcommand((sub) => sub.setName("audit").setDescription("Check for missing permissions")),
+    .addSubcommand((sub) =>
+      sub.setName("audit")
+        .setDescription("Check for missing permissions")
+        .addBooleanOption((opt) =>
+          opt.setName("detailed").setDescription("Include fix suggestions").setRequired(false)
+        )
+    ),
   new SlashCommandBuilder()
     .setName("staffstats")
     .setDescription("Show moderator performance metrics")
@@ -659,6 +726,25 @@ const commands = [
       sub
         .setName("intake")
         .setDescription("Open structured ticket intake form")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("wizard")
+        .setDescription("Guided ticket intake workflow")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("reopen")
+        .setDescription("Reopen a closed ticket by id")
+        .addStringOption((opt) => opt.setName("id").setDescription("Ticket id").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("feedback")
+        .setDescription("Submit post-ticket feedback")
+        .addStringOption((opt) => opt.setName("ticket_id").setDescription("Ticket id").setRequired(true))
+        .addIntegerOption((opt) => opt.setName("rating").setDescription("Rating 1-5").setRequired(true))
+        .addStringOption((opt) => opt.setName("note").setDescription("Optional note").setRequired(false))
     ),
   new SlashCommandBuilder()
     .setName("moddiff")
@@ -668,6 +754,42 @@ const commands = [
     .setDescription("Delete recent messages in this channel (staff only)")
     .addIntegerOption((opt) =>
       opt.setName("amount").setDescription("Messages to delete (1-100)").setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("clear")
+    .setDescription("Advanced channel clear tools (staff only)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+    .addSubcommand((sub) =>
+      sub.setName("messages")
+        .setDescription("Delete recent messages in batches")
+        .addIntegerOption((opt) =>
+          opt.setName("amount").setDescription("Messages to delete (1-1000)").setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt.setName("reason").setDescription("Reason for clearing").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("dry_run").setDescription("Preview only; do not delete").setRequired(false)
+        )
+        .addChannelOption((opt) =>
+          opt.setName("channel").setDescription("Target channel (defaults to current)").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub.setName("nuke")
+        .setDescription("Recreate a channel to wipe full history")
+        .addStringOption((opt) =>
+          opt.setName("confirm").setDescription("Type NUKE to confirm").setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt.setName("reason").setDescription("Reason for nuking").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("dry_run").setDescription("Preview only; do not nuke").setRequired(false)
+        )
+        .addChannelOption((opt) =>
+          opt.setName("channel").setDescription("Target text channel (defaults to current)").setRequired(false)
+        )
     ),
   new SlashCommandBuilder()
     .setName("slowmode")
@@ -925,6 +1047,11 @@ const commands = [
             )
         )
         .addIntegerOption((opt) => opt.setName("limit").setDescription("How many entries (1-1000)").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("verify")
+        .setDescription("Verify signed audit hash chain integrity")
+        .addIntegerOption((opt) => opt.setName("limit").setDescription("How many latest entries to verify (50-5000)").setRequired(false))
     ),
   new SlashCommandBuilder()
     .setName("incident")
@@ -987,6 +1114,21 @@ const commands = [
       sub.setName("postmortem_approve")
         .setDescription("Approve postmortem draft by id")
         .addStringOption((opt) => opt.setName("postmortem_id").setDescription("Postmortem id").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("wizard")
+        .setDescription("Guided incident response workflow")
+        .addStringOption((opt) =>
+          opt.setName("scenario")
+            .setDescription("Scenario type")
+            .setRequired(false)
+            .addChoices(
+              { name: "harassment", value: "harassment" },
+              { name: "cheating", value: "cheating" },
+              { name: "spam", value: "spam" },
+              { name: "raid", value: "raid" }
+            )
+        )
     ),
   new SlashCommandBuilder()
     .setName("backup")
