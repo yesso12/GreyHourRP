@@ -83,6 +83,7 @@ const commandErrorRateThreshold = Number(process.env.COMMAND_ERROR_RATE_THRESHOL
 const smokeStatusMaxAgeMinutes = Number(process.env.SMOKE_STATUS_MAX_AGE_MINUTES || 30);
 const auditRetentionDays = Number(process.env.AUDIT_RETENTION_DAYS || 30);
 const incidentRetentionDays = Number(process.env.INCIDENT_RETENTION_DAYS || 180);
+const dashboardBaseUrl = process.env.DASHBOARD_BASE_URL || "";
 
 function validateStartupConfig() {
   const errors = [];
@@ -147,12 +148,14 @@ const eventsFile = path.join(stateDir, "events.json");
 const communityFile = path.join(stateDir, "community.json");
 const incidentsFile = path.join(stateDir, "incidents.json");
 const modCallsFile = path.join(stateDir, "modcalls.json");
+const ticketsFile = path.join(stateDir, "tickets.json");
 const adminSnapshotsFile = path.join(stateDir, "admin-snapshots.json");
 const auditLogFile = path.join(stateDir, "audit.log.jsonl");
 const jobsFile = path.join(stateDir, "jobs.json");
 const smokeStatusFile = path.join(stateDir, "smoke-status.json");
 const backupsDir = path.join(stateDir, "backups");
 const roleSyncFile = path.join(process.cwd(), "config", "role-sync.json");
+const staffProfilesFile = path.join(process.cwd(), "config", "staff-profiles.json");
 
 const metrics = {
   startedAt: Date.now(),
@@ -199,6 +202,7 @@ const dataFiles = {
   events: eventsFile,
   community: communityFile,
   incidents: incidentsFile,
+  tickets: ticketsFile,
   modcalls: modCallsFile,
   audit: auditLogFile
 };
@@ -280,11 +284,17 @@ const HELP_CATALOG = [
   { syntax: "/optin", desc: "Toggle alert roles.", staffOnly: false },
   { syntax: "/modcall", desc: "Run moderator call workflow.", staffOnly: true, policyKey: "modcall" },
   { syntax: "/case assign-next", desc: "Auto-assign next open case to least-busy on-shift mod.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/case timeline", desc: "Render full timeline for a case.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/triage", desc: "Analyze issue text and suggest category/urgency/actions.", staffOnly: true, policyKey: "modcall" },
   { syntax: "/mod", desc: "Set shift status and view moderation metrics.", staffOnly: true, policyKey: "mod" },
   { syntax: "/incident", desc: "Create/list/resolve/link moderation incidents.", staffOnly: true, policyKey: "incident" },
+  { syntax: "/incident correlate", desc: "Correlate incident/case/ticket patterns for a user.", staffOnly: true, policyKey: "incident" },
+  { syntax: "/incident report", desc: "Generate post-incident summary report.", staffOnly: true, policyKey: "incident" },
   { syntax: "/audit", desc: "View/export command audit logs.", staffOnly: true, policyKey: "audit" },
   { syntax: "/backup", desc: "Create/list/restore bot data backups.", staffOnly: true, policyKey: "backup" },
   { syntax: "/ops", desc: "Operations status, maintenance, safemode, inventory.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/ops dashboard", desc: "Show dashboard and metrics endpoints.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/ops simulation", desc: "Toggle simulation mode for drills.", staffOnly: true, policyKey: "ops" },
   { syntax: "/rolesync", desc: "Preview/validate role-sync rules.", staffOnly: true, policyKey: "ops" },
   { syntax: "/permissions audit", desc: "Check missing bot permissions in key channels.", staffOnly: true, policyKey: "ops" },
   { syntax: "/staffpanel", desc: "Open one-click staff action panel.", staffOnly: true, policyKey: "ops" },
@@ -325,6 +335,41 @@ function saveState(state) {
     fs.mkdirSync(stateDir, { recursive: true });
     fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
   } catch {}
+}
+
+function isSimulationModeEnabled() {
+  const state = loadState();
+  return Boolean(state.simulationModeEnabled);
+}
+
+function setSimulationModeEnabled(enabled, actorId = "") {
+  const state = loadState();
+  state.simulationModeEnabled = Boolean(enabled);
+  state.simulationModeUpdatedAt = new Date().toISOString();
+  state.simulationModeUpdatedBy = actorId;
+  saveState(state);
+}
+
+function getUserRiskScore(userId) {
+  const state = loadState();
+  const map = state.userRiskScores && typeof state.userRiskScores === "object" ? state.userRiskScores : {};
+  return Number(map[userId] || 0);
+}
+
+function adjustUserRiskScore(userId, delta, reason = "") {
+  if (!userId) return;
+  const state = loadState();
+  const map = state.userRiskScores && typeof state.userRiskScores === "object" ? state.userRiskScores : {};
+  const next = Math.max(0, Number(map[userId] || 0) + Number(delta || 0));
+  map[userId] = next;
+  state.userRiskScores = map;
+  state.lastRiskUpdate = {
+    userId,
+    delta,
+    reason: truncate(reason, 200),
+    at: new Date().toISOString()
+  };
+  saveState(state);
 }
 
 function loadReminders() {
@@ -389,6 +434,22 @@ function saveIncidents(list) {
   try {
     fs.mkdirSync(stateDir, { recursive: true });
     fs.writeFileSync(incidentsFile, JSON.stringify(list, null, 2));
+  } catch {}
+}
+
+function loadTickets() {
+  try {
+    if (!fs.existsSync(ticketsFile)) return [];
+    return JSON.parse(fs.readFileSync(ticketsFile, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+function saveTickets(list) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(ticketsFile, JSON.stringify(list, null, 2));
   } catch {}
 }
 
@@ -654,15 +715,72 @@ function getOpenCaseLoadByModerator(data) {
   return load;
 }
 
-function pickLeastBusyModerator(data, candidateIds) {
+function loadStaffProfiles() {
+  const raw = readJsonFile(staffProfilesFile, { profiles: [] });
+  const profiles = Array.isArray(raw.profiles) ? raw.profiles : [];
+  const map = {};
+  for (const p of profiles) {
+    const userId = String(p?.userId || "").trim();
+    if (!userId) continue;
+    map[userId] = {
+      expertise: Array.isArray(p?.expertise) ? p.expertise.map((x) => String(x).trim().toLowerCase()).filter(Boolean) : [],
+      unavailable: Boolean(p?.unavailable)
+    };
+  }
+  return map;
+}
+
+function triageContent(text) {
+  const body = String(text || "").toLowerCase();
+  const signals = {
+    urgent: /(urgent|asap|immediately|now|critical|emergency|threat|dox|suicide|self-harm)/i.test(body),
+    cheating: /(cheat|aimbot|esp|exploit|dup|dupe|hack|script)/i.test(body),
+    harassment: /(harass|abuse|slur|hate|threat|stalk)/i.test(body),
+    spam: /(spam|raid|flood|invite link|phish|scam)/i.test(body),
+    payment: /(payment|chargeback|refund|donat)/i.test(body)
+  };
+  let category = "general";
+  if (signals.cheating) category = "cheating";
+  else if (signals.harassment) category = "harassment";
+  else if (signals.spam) category = "spam";
+  else if (signals.payment) category = "billing";
+  const urgency = signals.urgent ? "urgent" : (signals.spam ? "high" : "normal");
+  const actions = [];
+  if (urgency === "urgent") actions.push("Page on-shift staff immediately.");
+  if (category === "spam") actions.push("Apply slowmode/lockdown controls.");
+  if (category === "harassment") actions.push("Separate users and preserve evidence.");
+  if (category === "cheating") actions.push("Collect clips/logs before enforcement.");
+  if (!actions.length) actions.push("Acknowledge and gather full context.");
+  return { category, urgency, actions };
+}
+
+function pickLeastBusyModerator(data, candidateIds, context = {}) {
   if (!candidateIds.length) return "";
   const load = getOpenCaseLoadByModerator(data);
+  const profiles = loadStaffProfiles();
+  const preferred = String(context.preferredExpertise || "").toLowerCase();
+  const now = Date.now();
   return candidateIds
     .slice()
     .sort((a, b) => {
       const da = load[a] || 0;
       const db = load[b] || 0;
+      const pa = profiles[a] || { expertise: [], unavailable: false };
+      const pb = profiles[b] || { expertise: [], unavailable: false };
+      if (pa.unavailable !== pb.unavailable) return pa.unavailable ? 1 : -1;
+      const ea = preferred && pa.expertise.includes(preferred) ? -1 : 0;
+      const eb = preferred && pb.expertise.includes(preferred) ? -1 : 0;
+      if (ea !== eb) return ea - eb;
+      const oldestOpenA = data.cases
+        .filter((x) => x.claimedBy === a && x.status !== "closed" && x.status !== "cancelled")
+        .map((x) => now - new Date(x.createdAt || 0).getTime())
+        .sort((x, y) => y - x)[0] || 0;
+      const oldestOpenB = data.cases
+        .filter((x) => x.claimedBy === b && x.status !== "closed" && x.status !== "cancelled")
+        .map((x) => now - new Date(x.createdAt || 0).getTime())
+        .sort((x, y) => y - x)[0] || 0;
       if (da !== db) return da - db;
+      if (oldestOpenA !== oldestOpenB) return oldestOpenA - oldestOpenB;
       return a.localeCompare(b);
     })[0] || "";
 }
@@ -683,6 +801,23 @@ function buildStaffStats(data, targetUserId = "") {
     if (ensureArray(row.history).some((h) => h.action === "reopened")) byMod[key].reopened += 1;
   }
   return byMod;
+}
+
+function buildUserContextSummary(userId) {
+  if (!userId) return "No user context.";
+  const incidents = loadIncidents().filter((x) => x.userId === userId);
+  const modState = loadModCallsState();
+  const cases = modState.cases.filter((x) => x.reporterId === userId || x.targetUserId === userId);
+  const tickets = loadTickets().filter((x) => x.userId === userId);
+  const openCases = cases.filter((x) => x.status !== "closed" && x.status !== "cancelled").length;
+  const openTickets = tickets.filter((x) => x.status === "open").length;
+  const risk = getUserRiskScore(userId);
+  return [
+    `Risk score: ${risk}`,
+    `Incidents: ${incidents.length} (${incidents.filter((x) => x.status === "open").length} open)`,
+    `Mod cases: ${cases.length} (${openCases} open)`,
+    `Tickets: ${tickets.length} (${openTickets} open)`
+  ].join("\n");
 }
 
 function nextEscalationAt(row) {
@@ -735,13 +870,17 @@ async function notifyReporterUpdate(clientRef, row, message) {
 
 function addIncident(record) {
   const incidents = loadIncidents();
-  incidents.unshift({
+  const row = {
     id: makeId("inc"),
     status: "open",
     createdAt: new Date().toISOString(),
     ...record
-  });
+  };
+  incidents.unshift(row);
   saveIncidents(incidents);
+  const sev = String(row.severity || "low");
+  const delta = sev === "critical" ? 15 : sev === "high" ? 10 : sev === "medium" ? 5 : 2;
+  adjustUserRiskScore(row.userId || "", delta, `incident:${sev}`);
 }
 
 function loadCommunity() {
@@ -1184,6 +1323,33 @@ function startMetricsServer() {
       res.end("ok");
       return;
     }
+    if (req.url === "/dashboard") {
+      const jobs = loadJobs();
+      const pendingJobs = jobs.filter((x) => x.status === "pending").length;
+      const modState = loadModCallsState();
+      const openModCases = modState.cases.filter((x) => x.status !== "closed" && x.status !== "cancelled").length;
+      const payload = {
+        generatedAt: new Date().toISOString(),
+        deployTag,
+        mode: dryRunMode ? "dry-run" : (stagingMode ? "staging" : "live"),
+        simulationMode: isSimulationModeEnabled(),
+        metrics: {
+          commandsTotal: metrics.commandsTotal,
+          commandErrors: metrics.commandErrors,
+          apiCalls: metrics.apiCalls,
+          apiErrors: metrics.apiErrors,
+          queuePending: pendingJobs,
+          queueFailed: metrics.queueFailed,
+          modCallsOpen: openModCases,
+          modCallsCreated: metrics.modCallsCreated,
+          modCallsClaimed: metrics.modCallsClaimed,
+          modCallsClosed: metrics.modCallsClosed
+        }
+      };
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify(payload, null, 2));
+      return;
+    }
     if (req.url !== "/metrics") {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("not found");
@@ -1351,7 +1517,26 @@ function checkAndSetCooldown(interaction, commandName) {
 function appendAuditEntry(entry) {
   try {
     fs.mkdirSync(stateDir, { recursive: true });
-    fs.appendFileSync(auditLogFile, `${JSON.stringify(entry)}\n`);
+    let prevHash = "";
+    if (fs.existsSync(auditLogFile)) {
+      const lastLine = fs.readFileSync(auditLogFile, "utf-8").trim().split("\n").filter(Boolean).slice(-1)[0] || "";
+      if (lastLine) {
+        try {
+          const parsed = JSON.parse(lastLine);
+          prevHash = parsed.hash || "";
+        } catch {}
+      }
+    }
+    const payload = { ...entry, prevHash };
+    payload.hash = sha256(JSON.stringify({
+      reqId: payload.reqId || "",
+      timeUtc: payload.timeUtc || "",
+      command: payload.command || "",
+      status: payload.status || "",
+      userId: payload.userId || "",
+      prevHash
+    }));
+    fs.appendFileSync(auditLogFile, `${JSON.stringify(payload)}\n`);
   } catch {}
 }
 
@@ -1512,6 +1697,7 @@ function bumpMetric(name, commandName) {
 async function adminFetch(pathname, ctx = {}) {
   bumpMetric("apiCall");
   const reqId = ctx.reqId || randomUUID();
+  const method = ctx.method || "GET";
   const headers = {
     "X-Request-ID": reqId
   };
@@ -1523,7 +1709,12 @@ async function adminFetch(pathname, ctx = {}) {
 
   const startedAt = Date.now();
   const res = await fetch(`${apiBase}${pathname}`, {
-    headers
+    method,
+    headers: {
+      ...headers,
+      ...(ctx.body ? { "Content-Type": "application/json" } : {})
+    },
+    body: ctx.body ? JSON.stringify(ctx.body) : undefined
   });
   if (!res.ok) {
     bumpMetric("apiError");
@@ -1538,10 +1729,14 @@ async function adminFetch(pathname, ctx = {}) {
   logEvent("info", "admin.fetch.ok", {
     reqId,
     pathname,
+    method,
     status: res.status,
     durationMs: Date.now() - startedAt
   });
-  return res.json();
+  if (res.status === 204) return null;
+  const text = await res.text();
+  if (!text) return null;
+  return JSON.parse(text);
 }
 
 function getAdminAuthHeader() {
@@ -2381,7 +2576,9 @@ client.on("interactionCreate", async (interaction) => {
           { name: "User", value: `${target.tag} (\`${target.id}\`)`, inline: false },
           { name: "Joined Server", value: member.joinedAt ? member.joinedAt.toUTCString() : "Unknown", inline: true },
           { name: "Created Account", value: target.createdAt.toUTCString(), inline: true },
-          { name: "Roles", value: roles || "None", inline: false }
+          { name: "Risk Score", value: String(getUserRiskScore(target.id)), inline: true },
+          { name: "Roles", value: roles || "None", inline: false },
+          { name: "Context", value: truncate(buildUserContextSummary(target.id), 400), inline: false }
         )
         .setColor(0x60a5fa);
 
@@ -3009,11 +3206,27 @@ client.on("interactionCreate", async (interaction) => {
         const severity = interaction.options.getString("severity") || "medium";
         const category = interaction.options.getString("category") || "general";
         const details = interaction.options.getString("details") || "";
+        const triage = triageContent(`${category}\n${details}`);
         const target = interaction.options.getUser("target");
         const attachment = interaction.options.getAttachment("attachment");
         const id = makeId("mod");
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-        const priority = member && hasTrustedRole(member) ? "high" : (severity === "critical" ? "critical" : "normal");
+        const resolvedCategory = category === "general" ? triage.category : category;
+        const priority = member && hasTrustedRole(member)
+          ? "high"
+          : (severity === "critical" || triage.urgency === "urgent" ? "critical" : "normal");
+        if (isSimulationModeEnabled()) {
+          await interaction.reply({
+            content: [
+              "Simulation mode is enabled. Modcall was analyzed but not created.",
+              `Category: ${resolvedCategory}`,
+              `Priority: ${priority}`,
+              ...triage.actions.map((x) => `- ${x}`)
+            ].join("\n"),
+            ephemeral: true
+          });
+          return;
+        }
 
         const parent = modCallChannelId
           ? await interaction.guild.channels.fetch(modCallChannelId).catch(() => null)
@@ -3028,7 +3241,7 @@ client.on("interactionCreate", async (interaction) => {
           ? onShiftMentions.join(" ")
           : (modCallRoleId ? `<@&${modCallRoleId}>` : "Moderators");
         const seed = await sendMessageWithGuards(parent, {
-          content: `🚨 ${mention} mod call \`${id}\` (${priority}) from <@${interaction.user.id}>${target ? ` • target <@${target.id}>` : ""}\nCategory: ${category}\nSeverity: ${severity}\n${truncate(details, 700)}`
+          content: `🚨 ${mention} mod call \`${id}\` (${priority}) from <@${interaction.user.id}>${target ? ` • target <@${target.id}>` : ""}\nCategory: ${resolvedCategory}\nSeverity: ${severity}\n${truncate(details, 700)}`
         }, "modcall.create", reqId);
         if (!seed) {
           await interaction.reply({ content: "Mod call suppressed due to staging/dry-run mode.", ephemeral: true });
@@ -3052,7 +3265,7 @@ client.on("interactionCreate", async (interaction) => {
           sourceChannelId: interaction.channelId || "",
           threadId: thread.id,
           status: "open",
-          category,
+          category: resolvedCategory,
           severity,
           priority,
           details: truncate(details, 1200),
@@ -3277,6 +3490,7 @@ client.on("interactionCreate", async (interaction) => {
         row.reporterFlags = Number(row.reporterFlags || 0) + 1;
         addCaseHistoryRow(row, "flagged", interaction.user.id, reason);
         data.stats.falseReports += 1;
+        adjustUserRiskScore(row.reporterId || "", 3, "modcall.false-report-flag");
         saveModCallsState(data);
         await interaction.reply({ content: `Reporter on \`${id}\` flagged (${row.reporterFlags} total flags).`, ephemeral: true });
         return;
@@ -3539,6 +3753,11 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
+      if (isSimulationModeEnabled()) {
+        await interaction.reply({ content: `Simulation mode: would execute admin action \`${action}\` with payload ${truncate(JSON.stringify(payload), 300)}.`, ephemeral: true });
+        return;
+      }
+
       if (isSafeModeBlockedAdminAction(action)) {
         await interaction.reply({ content: `Safe mode is enabled. \`${action}\` is temporarily blocked.`, ephemeral: true });
         return;
@@ -3659,6 +3878,8 @@ client.on("interactionCreate", async (interaction) => {
           resolutionNote: ""
         });
         saveIncidents(incidents);
+        const delta = severity === "critical" ? 15 : severity === "high" ? 10 : severity === "medium" ? 5 : 2;
+        adjustUserRiskScore(user.id, delta, `incident-create:${severity}`);
         await interaction.reply({ content: `Incident created: \`${id}\` for <@${user.id}> (${severity})`, ephemeral: true });
         return;
       }
@@ -3688,6 +3909,7 @@ client.on("interactionCreate", async (interaction) => {
         row.resolvedBy = interaction.user.id;
         row.resolutionNote = truncate(note, 400);
         saveIncidents(incidents);
+        adjustUserRiskScore(row.userId || "", -2, "incident-resolved");
         await interaction.reply({ content: `Incident resolved: ${id}`, ephemeral: true });
         return;
       }
@@ -3721,6 +3943,66 @@ client.on("interactionCreate", async (interaction) => {
           saveIncidents(incidents);
         }
         await interaction.reply({ content: exists ? `Incident \`${id}\` is already linked to case \`${caseId}\`.` : `Linked incident \`${id}\` to case \`${caseId}\`.`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "correlate") {
+        const user = interaction.options.getUser("user", true);
+        const userId = user.id;
+        const userIncidents = incidents.filter((x) => x.userId === userId);
+        const data = loadModCallsState();
+        const userCases = data.cases.filter((x) => x.reporterId === userId || x.targetUserId === userId);
+        const tickets = loadTickets().filter((x) => x.userId === userId);
+        const last90d = Date.now() - 90 * 24 * 60 * 60 * 1000;
+        const severeCount = userIncidents.filter((x) => ["high", "critical"].includes(String(x.severity)) && new Date(x.createdAt || 0).getTime() >= last90d).length;
+        const reopenCount = userCases.filter((x) => ensureArray(x.history).some((h) => h.action === "reopened")).length;
+        const abuseSignals = userCases.filter((x) => Number(x.reporterFlags || 0) > 0).length;
+        const risk = getUserRiskScore(userId);
+        await interaction.reply({
+          content: [
+            `Correlation for <@${userId}>`,
+            `Risk score: ${risk}`,
+            `Incidents: ${userIncidents.length} (${userIncidents.filter((x) => x.status === "open").length} open)`,
+            `High/Critical incidents (90d): ${severeCount}`,
+            `Mod cases: ${userCases.length} (${reopenCount} reopened)`,
+            `Tickets: ${tickets.length}`,
+            `Abuse signals: ${abuseSignals}`
+          ].join("\n"),
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (sub === "report") {
+        const id = interaction.options.getString("id", true);
+        const row = incidents.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: "Incident not found.", ephemeral: true });
+          return;
+        }
+        const data = loadModCallsState();
+        const linked = ensureArray(row.linkedCases).map((x) => x.caseId);
+        const linkedCases = data.cases.filter((x) => linked.includes(x.id));
+        const timeline = linkedCases.flatMap((c) => ensureArray(c.history).map((h) => ({ caseId: c.id, ...h })))
+          .sort((a, b) => new Date(a.at || 0).getTime() - new Date(b.at || 0).getTime())
+          .slice(-20);
+        const report = [
+          `Post-Incident Report: ${row.id}`,
+          `Target: <@${row.userId}>`,
+          `Severity: ${row.severity}`,
+          `Status: ${row.status}`,
+          `Created: ${row.createdAt}`,
+          row.resolvedAt ? `Resolved: ${row.resolvedAt}` : "Resolved: pending",
+          `Reason: ${truncate(row.reason || "", 220)}`,
+          `Linked Cases: ${linkedCases.length ? linkedCases.map((c) => c.id).join(", ") : "none"}`,
+          "Timeline (latest):",
+          timeline.length ? timeline.map((t) => `${t.at || "unknown"} • ${t.caseId} • ${t.action} • ${t.actorId ? `<@${t.actorId}>` : "system"}${t.note ? ` • ${truncate(t.note, 100)}` : ""}`).join("\n") : "No linked timeline events.",
+          "Recommended Follow-up:",
+          "- Validate role/policy controls for recurrence prevention.",
+          "- Review SLA misses and assignment path.",
+          "- Document any automation/playbook updates."
+        ];
+        await interaction.reply({ content: truncate(report.join("\n"), 1900), ephemeral: true });
         return;
       }
     }
@@ -3829,6 +4111,7 @@ client.on("interactionCreate", async (interaction) => {
         const smoke = loadSmokeStatus();
         const maintenance = loadMaintenanceState();
         const safeMode = loadAdminSafeModeState();
+        const simulation = isSimulationModeEnabled();
         const state = loadState();
         const lastSchedulerErr = state.lastSchedulerErrorAt || "none";
         const embed = new EmbedBuilder()
@@ -3839,6 +4122,7 @@ client.on("interactionCreate", async (interaction) => {
             { name: "Mode", value: dryRunMode ? "dry-run" : (stagingMode ? "staging" : "live"), inline: true },
             { name: "Maintenance", value: maintenance.enabled ? `on - ${truncate(maintenance.message, 80)}` : "off", inline: false },
             { name: "Safe Mode", value: safeMode.enabled ? "on" : "off", inline: true },
+            { name: "Simulation", value: simulation ? "on" : "off", inline: true },
             { name: "Queue", value: `${pendingJobs} pending / ${metrics.queueFailed} failed`, inline: true },
             { name: "Schedulers", value: `${metrics.schedulerRuns} runs / ${metrics.schedulerErrors} errors`, inline: true },
             { name: "Command Errors", value: `${metrics.commandErrors}/${metrics.commandsTotal}`, inline: true },
@@ -3868,6 +4152,30 @@ client.on("interactionCreate", async (interaction) => {
         const enabled = stateValue === "on";
         setAdminSafeMode(enabled, interaction.user.id);
         await interaction.reply({ content: `Safe mode ${enabled ? "enabled" : "disabled"}.`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "simulation") {
+        const stateValue = interaction.options.getString("state", true);
+        const enabled = stateValue === "on";
+        setSimulationModeEnabled(enabled, interaction.user.id);
+        await interaction.reply({ content: `Simulation mode ${enabled ? "enabled" : "disabled"}.`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "dashboard") {
+        const host = metricsHost || "127.0.0.1";
+        const port = metricsPort || 0;
+        const localBase = port ? `http://${host}:${port}` : "metrics server disabled";
+        const external = dashboardBaseUrl ? `${dashboardBaseUrl.replace(/\/$/, "")}/dashboard` : "";
+        await interaction.reply({
+          content: [
+            `Dashboard JSON: ${port ? `${localBase}/dashboard` : "disabled (set METRICS_PORT)"}`,
+            `Metrics: ${port ? `${localBase}/metrics` : "disabled"}`,
+            external ? `External dashboard URL: ${external}` : ""
+          ].filter(Boolean).join("\n"),
+          ephemeral: true
+        });
         return;
       }
 
@@ -3996,9 +4304,14 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         const onShiftIds = Object.entries(data.shifts).filter(([, v]) => v?.on).map(([id]) => id);
-        const assignTo = pickLeastBusyModerator(data, onShiftIds);
+        const preferredExpertise = target.category || "";
+        const assignTo = pickLeastBusyModerator(data, onShiftIds, { preferredExpertise });
         if (!assignTo) {
           await interaction.reply({ content: "No on-shift moderators are available for assignment.", ephemeral: true });
+          return;
+        }
+        if (isSimulationModeEnabled()) {
+          await interaction.reply({ content: `Simulation mode: would assign case \`${target.id}\` to <@${assignTo}>.`, ephemeral: true });
           return;
         }
         target.claimedBy = assignTo;
@@ -4017,6 +4330,31 @@ client.on("interactionCreate", async (interaction) => {
         }
         await notifyReporterUpdate(interaction.client, target, `Your case is now assigned to <@${assignTo}>.`);
         await interaction.reply({ content: `Case \`${target.id}\` assigned to <@${assignTo}>.`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "timeline") {
+        const id = interaction.options.getString("id", true);
+        const row = data.cases.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: "Case not found.", ephemeral: true });
+          return;
+        }
+        const history = ensureArray(row.history).slice(-25).map((h) => `${h.at || "unknown"} • ${h.action} • ${h.actorId ? `<@${h.actorId}>` : "system"}${h.note ? ` • ${truncate(h.note, 120)}` : ""}`);
+        const lines = [
+          `Case: \`${row.id}\``,
+          `Status: ${row.status}`,
+          `Priority: ${row.priority || "normal"}`,
+          `Reporter: <@${row.reporterId}>`,
+          row.claimedBy ? `Claimed by: <@${row.claimedBy}>` : "Claimed by: unassigned",
+          row.closedBy ? `Closed by: <@${row.closedBy}>` : "",
+          `Created: ${row.createdAt || "unknown"}`,
+          row.closedAt ? `Closed: ${row.closedAt}` : "",
+          `Evidence count: ${ensureArray(row.evidence).length}`,
+          "Timeline:",
+          history.length ? history.join("\n") : "No timeline events."
+        ].filter(Boolean);
+        await interaction.reply({ content: truncate(lines.join("\n"), 1900), ephemeral: true });
         return;
       }
     }
@@ -4093,7 +4431,45 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
       const lines = [`**${topic.toUpperCase()} Playbook**`, ...steps.map((s, i) => `${i + 1}. ${s}`)];
+      const maybeCaseId = interaction.options.getString("case_id") || "";
+      const execute = interaction.options.getBoolean("execute") || false;
+      if (execute && maybeCaseId) {
+        const data = loadModCallsState();
+        const row = data.cases.find((x) => x.id === maybeCaseId);
+        if (row && interaction.guild) {
+          addCaseHistoryRow(row, "playbook-executed", interaction.user.id, `Applied playbook ${topic}`);
+          saveModCallsState(data);
+          const thread = row.threadId ? await interaction.guild.channels.fetch(row.threadId).catch(() => null) : null;
+          if (thread && thread.isTextBased()) {
+            await sendMessageWithGuards(thread, { content: `📘 Playbook \`${topic}\` executed by <@${interaction.user.id}>.\n${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}` }, "playbook.execute", reqId);
+          }
+          lines.push("", `Applied to case: \`${maybeCaseId}\``);
+        } else {
+          lines.push("", `Could not apply to case: \`${maybeCaseId}\` (not found).`);
+        }
+      }
       await interaction.reply({ content: lines.join("\n"), ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "triage") {
+      const staff = await requireStaff(interaction, "modcall");
+      if (!staff) return;
+      const text = interaction.options.getString("text", true);
+      const triage = triageContent(text);
+      const data = loadModCallsState();
+      const dup = data.cases.find((x) => x.status !== "closed" && x.status !== "cancelled" && String(x.details || "").toLowerCase().includes(String(text).toLowerCase().slice(0, 40)));
+      await interaction.reply({
+        content: [
+          `Triage Result`,
+          `Category: ${triage.category}`,
+          `Urgency: ${triage.urgency}`,
+          `Suggested actions:`,
+          ...triage.actions.map((x) => `- ${x}`),
+          dup ? `Possible duplicate case: \`${dup.id}\`` : "Possible duplicate case: none"
+        ].join("\n"),
+        ephemeral: true
+      });
       return;
     }
 
@@ -4453,6 +4829,30 @@ client.on("interactionCreate", async (interaction) => {
         const subject = interaction.options.getString("subject", true);
         const details = interaction.options.getString("details") || "No details provided.";
         const urgency = interaction.options.getString("urgency") || "normal";
+        const triage = triageContent(`${subject}\n${details}`);
+        const tickets = loadTickets();
+        const duplicate = tickets.find((x) =>
+          x.status === "open" &&
+          x.userId === interaction.user.id &&
+          (Date.now() - new Date(x.createdAt || 0).getTime()) < 24 * 60 * 60 * 1000 &&
+          String(x.subject || "").toLowerCase() === String(subject || "").toLowerCase()
+        );
+        if (duplicate) {
+          await interaction.reply({ content: `You already have a similar open ticket: <#${duplicate.channelId}>`, ephemeral: true });
+          return;
+        }
+        if (isSimulationModeEnabled()) {
+          await interaction.reply({
+            content: [
+              "Simulation mode is enabled. Ticket was analyzed but not created.",
+              `Category: ${triage.category}`,
+              `Urgency: ${triage.urgency}`,
+              ...triage.actions.map((x) => `- ${x}`)
+            ].join("\n"),
+            ephemeral: true
+          });
+          return;
+        }
         const intakeChannel = ticketChannelId
           ? await client.channels.fetch(ticketChannelId).catch(() => null)
           : interaction.channel;
@@ -4526,9 +4926,13 @@ client.on("interactionCreate", async (interaction) => {
             `🎫 **Private Support Ticket**`,
             `Reporter: <@${interaction.user.id}>`,
             `Urgency: **${urgency.toUpperCase()}**`,
+            `Triage Category: **${triage.category}**`,
             `Subject: **${truncate(subject, 120)}**`,
             `Details: ${truncate(details, 1400)}`,
-            `Staff: ${staffMentions}`
+            `Staff: ${staffMentions}`,
+            "",
+            "**User Context Snapshot**",
+            buildUserContextSummary(interaction.user.id)
           ].join("\n")
         }, "ticket.create.private", reqId);
 
@@ -4537,16 +4941,30 @@ client.on("interactionCreate", async (interaction) => {
         }, "ticket.create.audit", reqId);
 
         const urgentKeywords = /(urgent|asap|immediately|now|critical|emergency)/i;
-        const isUrgent = urgency === "urgent" || urgency === "high" || urgentKeywords.test(`${subject} ${details}`);
+        const isUrgent = urgency === "urgent" || urgency === "high" || triage.urgency === "urgent" || urgentKeywords.test(`${subject} ${details}`);
         if (isUrgent) {
           const dm = await notifyUrgentStaff(interaction.guild, {
             title: "Urgent Ticket Alert",
-            summary: `New ${urgency} private ticket: ${truncate(subject, 140)}`,
+            summary: `New ${urgency} private ticket (${triage.category}): ${truncate(subject, 140)}`,
             link: ticketChannel.url,
             reporterId: interaction.user.id
           });
           logEvent("info", "ticket.urgent.dm", { sent: dm.sent, failed: dm.failed, ticketChannelId: ticketChannel.id });
         }
+
+        tickets.unshift({
+          id: makeId("tkt"),
+          channelId: ticketChannel.id,
+          userId: interaction.user.id,
+          subject: truncate(subject, 140),
+          details: truncate(details, 800),
+          urgency,
+          triageCategory: triage.category,
+          status: "open",
+          createdAt: new Date().toISOString(),
+          createdBy: interaction.user.id
+        });
+        saveTickets(tickets.slice(0, 1000));
 
         await interaction.reply({ content: `Ticket created: ${ticketChannel.toString()} (private)`, ephemeral: true });
         return;
@@ -4568,6 +4986,14 @@ client.on("interactionCreate", async (interaction) => {
         }
         if (channel.type === ChannelType.GuildText && String(channel.name || "").startsWith("ticket-")) {
           const targetId = channel.topic?.match(/\((\d+)\)/)?.[1] || "";
+          const tickets = loadTickets();
+          const ticketRow = tickets.find((x) => x.channelId === channel.id && x.status === "open");
+          if (ticketRow) {
+            ticketRow.status = "closed";
+            ticketRow.closedAt = new Date().toISOString();
+            ticketRow.closedBy = interaction.user.id;
+            saveTickets(tickets);
+          }
           if (targetId) {
             const user = await interaction.client.users.fetch(targetId).catch(() => null);
             if (user) {
@@ -5045,11 +5471,13 @@ async function runDailySummary() {
 function normalizeAutomationConfig(raw) {
   return {
     enabled: Boolean(raw?.enabled),
+    defaultChannelId: String(raw?.defaultChannelId || "").trim(),
     quietHoursStartUtc: Number(raw?.quietHoursStartUtc ?? 0),
     quietHoursEndUtc: Number(raw?.quietHoursEndUtc ?? 0),
     rotatingTemplates: Array.isArray(raw?.rotatingTemplates) ? raw.rotatingTemplates : [],
     schedules: Array.isArray(raw?.schedules) ? raw.schedules : [],
-    campaigns: Array.isArray(raw?.campaigns) ? raw.campaigns : []
+    campaigns: Array.isArray(raw?.campaigns) ? raw.campaigns : [],
+    manualDispatches: Array.isArray(raw?.manualDispatches) ? raw.manualDispatches : []
   };
 }
 
@@ -5107,6 +5535,25 @@ function getTemplateMessage(config, templateId) {
   return String(found.message || "").trim();
 }
 
+function parseChannelId(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  const mentionMatch = value.match(/^<#(\d+)>$/);
+  if (mentionMatch) return mentionMatch[1];
+  const idMatch = value.match(/^(\d{10,30})$/);
+  return idMatch ? idMatch[1] : "";
+}
+
+async function resolveAutomationChannelId(rawChannelId, fallbackChannelId) {
+  const fallback = parseChannelId(fallbackChannelId) || announceChannelId;
+  const parsed = parseChannelId(rawChannelId);
+  const target = parsed || fallback;
+  if (!target) return "";
+  const channel = await client.channels.fetch(target).catch(() => null);
+  if (!channel || !channel.isTextBased()) return fallback;
+  return target;
+}
+
 function markAutomationSent(state, key) {
   const map = state.automationSent && typeof state.automationSent === "object" ? state.automationSent : {};
   map[key] = Date.now();
@@ -5135,6 +5582,8 @@ async function runDiscordAutomation() {
   if (isInQuietHours(now, config.quietHoursStartUtc, config.quietHoursEndUtc)) return;
 
   const state = loadState();
+  let configChanged = false;
+  const defaultChannelId = parseChannelId(config.defaultChannelId) || announceChannelId;
 
   for (const schedule of config.schedules) {
     if (!scheduleMatchesNow(schedule, now)) continue;
@@ -5146,10 +5595,12 @@ async function runDiscordAutomation() {
     const body = String(fromTemplate || schedule.message || "").trim();
     if (!body) continue;
     const content = schedule.mentionEveryone ? `@everyone\n${body}` : body;
+    const channelId = await resolveAutomationChannelId(schedule.channelId, defaultChannelId);
+    if (!channelId) continue;
 
     enqueueJob({
       type: "automation-schedule",
-      channelId: announceChannelId,
+      channelId,
       idempotencyKey: key,
       content,
       maxRetries: 6
@@ -5169,10 +5620,12 @@ async function runDiscordAutomation() {
     ].filter(Boolean);
     const content = parts.join("\n").trim();
     if (!content) continue;
+    const channelId = await resolveAutomationChannelId(campaign.channelId, defaultChannelId);
+    if (!channelId) continue;
 
     enqueueJob({
       type: "automation-campaign",
-      channelId: announceChannelId,
+      channelId,
       idempotencyKey: key,
       content,
       maxRetries: 6
@@ -5180,7 +5633,49 @@ async function runDiscordAutomation() {
     markAutomationSent(state, key);
   }
 
+  const pendingDispatches = [];
+  for (const dispatch of config.manualDispatches) {
+    const sourceType = dispatch?.sourceType === "campaign" ? "campaign" : "schedule";
+    const sourceId = String(dispatch?.sourceId || "").trim();
+    const dispatchId = String(dispatch?.id || "").trim();
+    const key = dispatchId
+      ? `automation:manual:${dispatchId}`
+      : `automation:manual:${sourceType}:${sourceId}:${String(dispatch?.createdUtc || "")}`;
+    if (automationAlreadySent(state, key)) continue;
+
+    const message = String(dispatch?.message || "").trim();
+    if (!message) continue;
+    const mentionEveryone = Boolean(dispatch?.mentionEveryone);
+    const content = mentionEveryone ? `@everyone\n${message}` : message;
+    const channelId = await resolveAutomationChannelId(dispatch?.channelId, defaultChannelId);
+    if (!channelId) continue;
+
+    enqueueJob({
+      type: "automation-manual",
+      channelId,
+      idempotencyKey: key,
+      content,
+      maxRetries: 6
+    });
+    markAutomationSent(state, key);
+    configChanged = true;
+  }
+
+  if (config.manualDispatches.length) {
+    config.manualDispatches = pendingDispatches;
+    configChanged = true;
+  }
+
   saveState(state);
+  if (configChanged) {
+    try {
+      await adminFetch("/api/admin/content/discord-automation", {
+        reqId: "scheduler-discord-automation-save",
+        method: "PUT",
+        body: config
+      });
+    } catch {}
+  }
 }
 
 async function runCommunityMaintenance() {
@@ -5315,9 +5810,12 @@ async function runModCallEscalations() {
     addCaseHistoryRow(row, "escalated", "", `Escalation #${row.escalationCount}`);
     data.stats.escalated += 1;
 
-    const mention = row.escalationCount > 1 && seniorModRoleId
-      ? `<@&${seniorModRoleId}>`
-      : (onShiftMentions.length ? onShiftMentions.join(" ") : (modCallRoleId ? `<@&${modCallRoleId}>` : "Moderators"));
+    const escalationMatrix = {
+      1: onShiftMentions.length ? onShiftMentions.join(" ") : (modCallRoleId ? `<@&${modCallRoleId}>` : "Moderators"),
+      2: seniorModRoleId ? `<@&${seniorModRoleId}>` : (modCallRoleId ? `<@&${modCallRoleId}>` : "Moderators"),
+      3: ownerRoleIds.length ? ownerRoleIds.map((id) => `<@&${id}>`).join(" ") : (seniorModRoleId ? `<@&${seniorModRoleId}>` : "Moderators")
+    };
+    const mention = escalationMatrix[Math.min(3, row.escalationCount)] || escalationMatrix[3];
     const text = `⏱️ Unclaimed mod case \`${row.id}\` needs response (${row.escalationCount} escalation${row.escalationCount === 1 ? "" : "s"}). ${mention}`;
 
     if (row.threadId) {
@@ -5327,6 +5825,14 @@ async function runModCallEscalations() {
       }
     }
     await sendOpsAlert("modcall-escalation", `Case ${row.id} escalated (${row.escalationCount}).`);
+    if (row.escalationCount >= 3 && client.guilds.cache.size > 0) {
+      const guild = client.guilds.cache.first();
+      await notifyUrgentStaff(guild, {
+        title: "Escalation Matrix Alert",
+        summary: `Case ${row.id} has reached escalation level ${row.escalationCount}.`,
+        reporterId: row.reporterId
+      });
+    }
     await notifyReporterUpdate(client, row, "Your case has been escalated for faster moderator response.");
   }
 
@@ -5441,14 +5947,15 @@ function safeScheduler(task) {
 }
 
 function startSchedulers() {
-  safeScheduler(postStatusUpdate);
-  safeScheduler(postLatestUpdate);
-  safeScheduler(postLatestTransmission);
-  safeScheduler(postModsChange);
-  safeScheduler(postActivityLog);
-  safeScheduler(runDiscordAutomation);
-  safeScheduler(runModCallEscalations);
-  safeScheduler(runOpsWatchdog);
+  const initialDelayMs = 15000;
+  setTimeout(() => safeScheduler(postStatusUpdate), initialDelayMs);
+  setTimeout(() => safeScheduler(postLatestUpdate), initialDelayMs);
+  setTimeout(() => safeScheduler(postLatestTransmission), initialDelayMs);
+  setTimeout(() => safeScheduler(postModsChange), initialDelayMs);
+  setTimeout(() => safeScheduler(postActivityLog), initialDelayMs);
+  setTimeout(() => safeScheduler(runDiscordAutomation), initialDelayMs);
+  setTimeout(() => safeScheduler(runModCallEscalations), initialDelayMs);
+  setTimeout(() => safeScheduler(runOpsWatchdog), initialDelayMs);
 
   setInterval(() => safeScheduler(postStatusUpdate), intervalMs(autoStatusMinutes));
   setInterval(() => safeScheduler(postLatestUpdate), intervalMs(autoUpdatesMinutes));

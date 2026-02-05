@@ -81,6 +81,25 @@ const commands = [
               { name: "off", value: "off" }
             )
         )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("dashboard")
+        .setDescription("Get dashboard and metrics endpoints")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("simulation")
+        .setDescription("Toggle simulation mode for staff drills")
+        .addStringOption((opt) =>
+          opt.setName("state")
+            .setDescription("on or off")
+            .setRequired(true)
+            .addChoices(
+              { name: "on", value: "on" },
+              { name: "off", value: "off" }
+            )
+        )
     ),
   new SlashCommandBuilder()
     .setName("rolesync")
@@ -231,6 +250,12 @@ const commands = [
         .setName("assign-next")
         .setDescription("Assign an open case to the least-busy on-shift moderator")
         .addStringOption((opt) => opt.setName("id").setDescription("Specific case id (optional)").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("timeline")
+        .setDescription("Render full timeline for a case")
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
     ),
   new SlashCommandBuilder()
     .setName("staffpanel")
@@ -254,6 +279,19 @@ const commands = [
           { name: "spam", value: "spam" },
           { name: "raid", value: "raid" }
         )
+    )
+    .addStringOption((opt) =>
+      opt.setName("case_id").setDescription("Optional case id to apply playbook notes").setRequired(false)
+    )
+    .addBooleanOption((opt) =>
+      opt.setName("execute").setDescription("Post playbook steps into the case thread").setRequired(false)
+    ),
+  new SlashCommandBuilder()
+    .setName("triage")
+    .setDescription("Analyze ticket/case text for severity, category, and actions")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addStringOption((opt) =>
+      opt.setName("text").setDescription("Text to analyze").setRequired(true)
     ),
   new SlashCommandBuilder()
     .setName("handoff")
@@ -826,6 +864,16 @@ const commands = [
         .addStringOption((opt) => opt.setName("id").setDescription("Incident id").setRequired(true))
         .addStringOption((opt) => opt.setName("case_id").setDescription("Case id").setRequired(true))
         .addStringOption((opt) => opt.setName("note").setDescription("Optional link note").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("correlate")
+        .setDescription("Correlate incidents for a target user")
+        .addUserOption((opt) => opt.setName("user").setDescription("Target user").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("report")
+        .setDescription("Generate post-incident report")
+        .addStringOption((opt) => opt.setName("id").setDescription("Incident id").setRequired(true))
     ),
   new SlashCommandBuilder()
     .setName("backup")

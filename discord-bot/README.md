@@ -158,11 +158,13 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/help`
 - `/health`
 - `/ops status|maintenance|inventory|safemode`
+- `/ops dashboard|simulation`
 - `/rolesync preview|validate`
-- `/case assign-next`
+- `/case assign-next|timeline`
 - `/staffpanel`
 - `/staffquickstart`
-- `/playbook topic`
+- `/playbook topic` (`execute` + `case_id` optional)
+- `/triage text`
 - `/handoff include_cases`
 - `/permissions audit`
 - `/staffstats user`
@@ -173,7 +175,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/metrics`
 - `/audit list`
 - `/audit export`
-- `/incident create|list|resolve|link`
+- `/incident create|list|resolve|link|correlate|report`
 - `/backup create|list|restore` (`dry_run` supported on restore)
 - `/lfg create|list|close`
 - `/faction create|recruit|roster|disband`
