@@ -13,12 +13,16 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - Enterprise ops: structured command audit log, moderation incident tracker, and data backup/restore workflows.
 - Staging mode + dry-run mode for safe production rehearsals.
 - Startup config validation with explicit errors and warnings.
+- Preflight validation (`npm run preflight`) for env, policy, channels, and bot permissions.
 - Persistent on-disk job queue for reminders/auto-announcements.
 - Structured JSON logs with per-command request IDs.
 - Abuse shield (per-user + per-channel burst limiting).
 - Permission policy file for command-level role gates.
 - Prometheus metrics endpoint (`/metrics`) + health probe (`/healthz`).
 - Backup verification and retention policy (daily + weekly).
+- Ops watchdog alerts for queue backlog, scheduler failures, command error rate, and stale/failed smoke checks.
+- Maintenance mode gate for non-staff commands with single-banner announcement.
+- `/ops inventory` can snapshot members, roles, and channels (summary/export).
 - Admin-only broadcast to announcement channel.
 - Auto status polling + change announcements.
 - Auto updates polling + announcements.
@@ -37,13 +41,18 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 2. Copy `.env.example` to `.env` and fill values.
 3. Install dependencies:
    - `npm install`
-4. Register slash commands (guild-scoped):
+4. Run preflight checks:
+   - `npm run preflight`
+5. Register slash commands:
    - `npm run register`
-5. Start bot:
+   - `npm run register:guild`
+   - `npm run register:global`
+   - `npm run register:both`
+6. Start bot:
    - `npm start`
-6. Run smoke check:
+7. Run smoke check:
    - `npm run smoke`
-7. One-command production bootstrap (register + restart + smoke-check):
+8. One-command production bootstrap (register + restart + smoke-check):
    - `npm run bootstrap:prod`
 
 ## Production Bootstrap
@@ -63,7 +72,6 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `DISCORD_CLIENT_ID`
 - `DISCORD_GUILD_ID`
 - `ADMIN_API_BASE`
-- `ADMIN_API_KEY`
 - `ANNOUNCE_CHANNEL_ID`
 - `STATUS_CHANNEL_ID`
 - `LOG_CHANNEL_ID`
@@ -80,6 +88,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `GOODBYE_MESSAGE` (use `{user}` placeholder)
 - `SITE_URL` (defaults to ADMIN_API_BASE)
 - `BOT_ACTIVITY_TEXT`
+- `BOT_DEPLOY_TAG`
 - `LORE_SNIPPET`
 - `STATUS_ALERT_MENTION` (example: `@everyone`)
 - `STATUS_MENTION_ONLINE`
@@ -117,11 +126,19 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `BACKUP_RETENTION_DAILY` (default 14)
 - `BACKUP_RETENTION_WEEKLY` (default 8)
 - `PERMISSION_POLICY_FILE` (default `config/permissions-policy.json`)
+- `ALERT_CHANNEL_ID` (defaults to `LOG_CHANNEL_ID` then `ANNOUNCE_CHANNEL_ID`)
+- `QUEUE_BACKLOG_ALERT_THRESHOLD` (default 50)
+- `COMMAND_ERROR_RATE_THRESHOLD` (default 0.25)
+- `SMOKE_STATUS_MAX_AGE_MINUTES` (default 30)
+- `AUDIT_RETENTION_DAYS` (default 30)
+- `INCIDENT_RETENTION_DAYS` (default 180)
+- `REGISTER_SCOPE` (`guild`, `global`, `both`)
 
 ## Commands
 - `/ping`
 - `/help`
 - `/health`
+- `/ops status|maintenance|inventory`
 - `/metrics`
 - `/audit list`
 - `/audit export`
@@ -172,5 +189,6 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 
 ## Notes
 - The bot uses Admin API endpoints and respects existing role permissions.
-- Keep the API protected behind nginx basic auth and a strong API key.
+- Keep the API protected behind nginx/basic-auth credentials and strict role mapping.
 - Smoke check validates Admin API auth + service state: `npm run smoke`
+- Policy file is evaluated on every staff command gate (`/backup`, `/audit`, `/incident`, `/ops`, etc.).

@@ -4,9 +4,20 @@ import { REST, Routes, SlashCommandBuilder } from "discord.js";
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.DISCORD_CLIENT_ID;
 const guildId = process.env.DISCORD_GUILD_ID;
+const scopeArg = process.argv.find((x) => x.startsWith("--scope="));
+const registerScope = (scopeArg ? scopeArg.split("=")[1] : process.env.REGISTER_SCOPE || "guild").toLowerCase();
 
-if (!token || !clientId || !guildId) {
-  console.error("Missing DISCORD_TOKEN, DISCORD_CLIENT_ID, or DISCORD_GUILD_ID");
+if (!["guild", "global", "both"].includes(registerScope)) {
+  console.error(`Invalid --scope value: ${registerScope}. Use guild, global, or both.`);
+  process.exit(1);
+}
+
+if (!token || !clientId) {
+  console.error("Missing DISCORD_TOKEN or DISCORD_CLIENT_ID");
+  process.exit(1);
+}
+if ((registerScope === "guild" || registerScope === "both") && !guildId) {
+  console.error("DISCORD_GUILD_ID is required for guild or both scope registration.");
   process.exit(1);
 }
 
@@ -18,6 +29,43 @@ const commands = [
     .setDescription("Run bot health checks (staff only)")
     .addBooleanOption((opt) =>
       opt.setName("details").setDescription("Include extended diagnostics").setRequired(false)
+    ),
+  new SlashCommandBuilder()
+    .setName("ops")
+    .setDescription("Operations controls (staff only)")
+    .addSubcommand((sub) =>
+      sub.setName("status").setDescription("Show runtime operations status")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("maintenance")
+        .setDescription("Set maintenance mode")
+        .addStringOption((opt) =>
+          opt.setName("state")
+            .setDescription("on or off")
+            .setRequired(true)
+            .addChoices(
+              { name: "on", value: "on" },
+              { name: "off", value: "off" }
+            )
+        )
+        .addStringOption((opt) =>
+          opt.setName("message").setDescription("Optional maintenance message").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("inventory")
+        .setDescription("Export or summarize members/channels/roles")
+        .addStringOption((opt) =>
+          opt.setName("mode")
+            .setDescription("summary or export")
+            .setRequired(false)
+            .addChoices(
+              { name: "summary", value: "summary" },
+              { name: "export", value: "export" }
+            )
+        )
     ),
   new SlashCommandBuilder().setName("metrics").setDescription("Show bot runtime metrics (staff only)"),
   new SlashCommandBuilder().setName("whois").setDescription("Show member profile")
@@ -451,9 +499,16 @@ const commands = [
 const rest = new REST({ version: "10" }).setToken(token);
 
 try {
-  console.log("Registering slash commands...");
-  await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-  console.log("Slash commands registered.");
+  if (registerScope === "guild" || registerScope === "both") {
+    console.log(`Registering guild slash commands for guild ${guildId}...`);
+    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
+    console.log("Guild slash commands registered.");
+  }
+  if (registerScope === "global" || registerScope === "both") {
+    console.log("Registering global slash commands...");
+    await rest.put(Routes.applicationCommands(clientId), { body: commands });
+    console.log("Global slash commands registered.");
+  }
 } catch (err) {
   console.error(err);
   process.exit(1);

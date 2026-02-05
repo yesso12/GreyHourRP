@@ -7,7 +7,12 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "register": "node register-commands.js",
+    "register": "node register-commands.js --scope=guild",
+    "register:guild": "node register-commands.js --scope=guild",
+    "register:global": "node register-commands.js --scope=global",
+    "register:both": "node register-commands.js --scope=both",
+    "preflight": "node scripts/preflight.js",
+    "test": "node --test tests/*.test.js",
     "smoke": "bash scripts/smoke-check.sh",
     "bootstrap:prod": "bash scripts/production-bootstrap.sh"
   },

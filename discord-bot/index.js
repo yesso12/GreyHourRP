@@ -2,12 +2,13 @@ import "dotenv/config";
 import fs from "fs";
 import http from "http";
 import path from "path";
-import { createHash, randomUUID } from "crypto";
+import { randomUUID } from "crypto";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, Client, EmbedBuilder, GatewayIntentBits } from "discord.js";
+import { canAccessCommand, normalizePolicy } from "./lib/policy.js";
+import { sha256, verifyBackupPayload as verifyBackupPayloadCore } from "./lib/backup.js";
 
 const token = process.env.DISCORD_TOKEN;
 const apiBase = process.env.ADMIN_API_BASE || "";
-const apiKey = process.env.ADMIN_API_KEY || "";
 const adminBasicAuthUser = process.env.ADMIN_BASIC_AUTH_USER || "";
 const adminBasicAuthPass = process.env.ADMIN_BASIC_AUTH_PASS || "";
 const adminBasicAuthHeader = process.env.ADMIN_BASIC_AUTH_HEADER || "";
@@ -47,6 +48,7 @@ const autoTransmissionsMinutes = parsePositiveMinutes(process.env.AUTO_TRANSMISS
 const autoModsMinutes = parsePositiveMinutes(process.env.AUTO_MODS_MINUTES, 60, "AUTO_MODS_MINUTES");
 const siteUrl = process.env.SITE_URL || apiBase || "https://greyhourrp.xyz";
 const botActivity = process.env.BOT_ACTIVITY_TEXT || "Grey Hour RP | /help";
+const deployTag = process.env.BOT_DEPLOY_TAG || process.env.RELEASE_VERSION || "dev";
 const loreSnippet = process.env.LORE_SNIPPET ||
   "Day One did not end with screams or firestorms. It ended with silence. The Grey Hour is the moment the world balanced between what it was and what it would become.";
 const stagingMode = /^(1|true|yes)$/i.test(process.env.STAGING_MODE || "");
@@ -60,6 +62,12 @@ const backupRetentionDaily = Number(process.env.BACKUP_RETENTION_DAILY || 14);
 const backupRetentionWeekly = Number(process.env.BACKUP_RETENTION_WEEKLY || 8);
 const jobWorkerIntervalSeconds = Number(process.env.JOB_WORKER_INTERVAL_SECONDS || 5);
 const permissionPolicyFile = process.env.PERMISSION_POLICY_FILE || path.join(process.cwd(), "config", "permissions-policy.json");
+const alertChannelId = process.env.ALERT_CHANNEL_ID || logChannelId || announceChannelId;
+const queueBacklogAlertThreshold = Number(process.env.QUEUE_BACKLOG_ALERT_THRESHOLD || 50);
+const commandErrorRateThreshold = Number(process.env.COMMAND_ERROR_RATE_THRESHOLD || 0.25);
+const smokeStatusMaxAgeMinutes = Number(process.env.SMOKE_STATUS_MAX_AGE_MINUTES || 30);
+const auditRetentionDays = Number(process.env.AUDIT_RETENTION_DAYS || 30);
+const incidentRetentionDays = Number(process.env.INCIDENT_RETENTION_DAYS || 180);
 
 function validateStartupConfig() {
   const errors = [];
@@ -67,7 +75,6 @@ function validateStartupConfig() {
 
   if (!token) errors.push("DISCORD_TOKEN is required.");
   if (!apiBase) errors.push("ADMIN_API_BASE is required.");
-  if (!apiKey) errors.push("ADMIN_API_KEY is required.");
   if (metricsPort && (!Number.isInteger(metricsPort) || metricsPort < 1 || metricsPort > 65535)) {
     errors.push("METRICS_PORT must be an integer from 1 to 65535.");
   }
@@ -80,10 +87,17 @@ function validateStartupConfig() {
   if (jobWorkerIntervalSeconds < 1) errors.push("JOB_WORKER_INTERVAL_SECONDS must be >= 1.");
   if (backupRetentionDaily < 1) errors.push("BACKUP_RETENTION_DAILY must be >= 1.");
   if (backupRetentionWeekly < 1) errors.push("BACKUP_RETENTION_WEEKLY must be >= 1.");
+  if (queueBacklogAlertThreshold < 1) errors.push("QUEUE_BACKLOG_ALERT_THRESHOLD must be >= 1.");
+  if (commandErrorRateThreshold <= 0 || commandErrorRateThreshold >= 1) errors.push("COMMAND_ERROR_RATE_THRESHOLD must be between 0 and 1.");
+  if (smokeStatusMaxAgeMinutes < 1) errors.push("SMOKE_STATUS_MAX_AGE_MINUTES must be >= 1.");
+  if (auditRetentionDays < 1) errors.push("AUDIT_RETENTION_DAYS must be >= 1.");
+  if (incidentRetentionDays < 1) errors.push("INCIDENT_RETENTION_DAYS must be >= 1.");
 
   if (!announceChannelId) warnings.push("ANNOUNCE_CHANNEL_ID is not configured; announcement features will be limited.");
   if (!statusChannelId) warnings.push("STATUS_CHANNEL_ID is not configured; status autoposting is disabled.");
   if (!logChannelId) warnings.push("LOG_CHANNEL_ID is not configured; activity feed is disabled.");
+  if (!alertChannelId) warnings.push("ALERT_CHANNEL_ID/LOG_CHANNEL_ID/ANNOUNCE_CHANNEL_ID not configured; failure alerting disabled.");
+  if (!fs.existsSync(permissionPolicyFile)) warnings.push(`PERMISSION_POLICY_FILE not found at ${permissionPolicyFile}; default open policy will apply.`);
   if (stagingMode) warnings.push("STAGING_MODE is enabled; outbound channel posts are suppressed.");
   if (dryRunMode) warnings.push("DRY_RUN_MODE is enabled; no outbound channel posts will be sent.");
 
@@ -109,6 +123,7 @@ const communityFile = path.join(stateDir, "community.json");
 const incidentsFile = path.join(stateDir, "incidents.json");
 const auditLogFile = path.join(stateDir, "audit.log.jsonl");
 const jobsFile = path.join(stateDir, "jobs.json");
+const smokeStatusFile = path.join(stateDir, "smoke-status.json");
 const backupsDir = path.join(stateDir, "backups");
 
 const metrics = {
@@ -131,6 +146,8 @@ const abuseUserWindow = new Map();
 const abuseChannelWindow = new Map();
 let jobWorkerRunning = false;
 let metricsServer = null;
+let commandWindowTotal = 0;
+let commandWindowErrors = 0;
 const cooldownMs = {
   default: 3000,
   roll: 4000,
@@ -377,22 +394,112 @@ function isAbuseBlocked(interaction) {
 
 function loadPermissionPolicy() {
   const fallback = { allowUserIds: [], denyUserIds: [], commandRoleIds: {} };
-  const policy = readJsonFile(permissionPolicyFile, fallback);
-  return {
-    allowUserIds: Array.isArray(policy.allowUserIds) ? policy.allowUserIds : [],
-    denyUserIds: Array.isArray(policy.denyUserIds) ? policy.denyUserIds : [],
-    commandRoleIds: policy.commandRoleIds && typeof policy.commandRoleIds === "object" ? policy.commandRoleIds : {}
-  };
+  return normalizePolicy(readJsonFile(permissionPolicyFile, fallback));
 }
 
 function hasPolicyAccess(member, commandName) {
-  const policy = loadPermissionPolicy();
-  const uid = member.id;
-  if (policy.denyUserIds.includes(uid)) return false;
-  if (policy.allowUserIds.includes(uid)) return true;
-  const requiredRoles = Array.isArray(policy.commandRoleIds[commandName]) ? policy.commandRoleIds[commandName] : [];
-  if (!requiredRoles.length) return true;
-  return member.roles.cache.some((r) => requiredRoles.includes(r.id));
+  const roleIds = member.roles.cache.map((r) => r.id);
+  return canAccessCommand(loadPermissionPolicy(), member.id, roleIds, commandName);
+}
+
+function loadSmokeStatus() {
+  return readJsonFile(smokeStatusFile, {});
+}
+
+function loadMaintenanceState() {
+  const state = loadState();
+  return {
+    enabled: Boolean(state.maintenanceModeEnabled),
+    message: state.maintenanceModeMessage || "Server maintenance in progress. Please try again soon.",
+    announcedAt: state.maintenanceModeAnnouncedAt || ""
+  };
+}
+
+function setMaintenanceState(enabled, message, actorId = "") {
+  const state = loadState();
+  state.maintenanceModeEnabled = Boolean(enabled);
+  state.maintenanceModeMessage = message || "Server maintenance in progress. Please try again soon.";
+  state.maintenanceModeUpdatedAt = new Date().toISOString();
+  state.maintenanceModeUpdatedBy = actorId;
+  if (!enabled) {
+    state.maintenanceModeAnnouncedAt = "";
+  }
+  saveState(state);
+}
+
+function shouldBypassMaintenance(commandName) {
+  return ["ping", "help", "status"].includes(commandName);
+}
+
+async function postMaintenanceBanner(reqId = "") {
+  if (!announceChannelId) return false;
+  const state = loadState();
+  if (state.maintenanceModeAnnouncedAt) return false;
+  const channel = await client.channels.fetch(announceChannelId).catch(() => null);
+  if (!channel || !channel.isTextBased()) return false;
+  const maintenance = loadMaintenanceState();
+  const sent = await sendMessageWithGuards(channel, {
+    content: `🛠️ **Maintenance Mode Enabled**\n${maintenance.message}`
+  }, "maintenance.banner", reqId);
+  if (sent) {
+    state.maintenanceModeAnnouncedAt = new Date().toISOString();
+    saveState(state);
+  }
+  return Boolean(sent);
+}
+
+async function sendOpsAlert(kind, message, reqId = "") {
+  if (!alertChannelId) return;
+  const state = loadState();
+  const key = `alertDedup:${kind}`;
+  const now = Date.now();
+  const last = Number(state[key] || 0);
+  if (now - last < 15 * 60 * 1000) return;
+  state[key] = now;
+  saveState(state);
+
+  enqueueJob({
+    type: "ops-alert",
+    channelId: alertChannelId,
+    idempotencyKey: `ops-alert:${kind}:${Math.floor(now / (15 * 60 * 1000))}`,
+    content: `⚠️ **Ops Alert**: ${message}`,
+    maxRetries: 8
+  });
+  logEvent("warn", "ops.alert.enqueued", { reqId, kind, message: truncate(message, 220) });
+}
+
+function buildGuildInventory(guild) {
+  const channels = guild.channels.cache.map((c) => ({
+    id: c.id,
+    name: c.name,
+    type: String(c.type),
+    parentId: c.parentId || "",
+    position: c.position || 0
+  }));
+  const roles = guild.roles.cache
+    .filter((r) => r.id !== guild.id)
+    .map((r) => ({ id: r.id, name: r.name, position: r.position, color: r.hexColor }));
+  const members = guild.members.cache.map((m) => ({
+    id: m.id,
+    tag: m.user.tag,
+    displayName: m.displayName,
+    bot: m.user.bot,
+    roles: m.roles.cache.filter((r) => r.id !== guild.id).map((r) => r.id)
+  }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    guild: {
+      id: guild.id,
+      name: guild.name,
+      memberCount: guild.memberCount,
+      channels: channels.length,
+      roles: roles.length
+    },
+    channels,
+    roles,
+    members
+  };
 }
 
 async function sendMessageWithGuards(channel, payload, context, reqId = "") {
@@ -437,6 +544,7 @@ async function processPendingJobs() {
         if (job.retries > Number(job.maxRetries || 5)) {
           job.status = "failed";
           metrics.queueFailed += 1;
+          sendOpsAlert("queue-job-failed", `Job ${job.id} (${job.type}) failed permanently after ${job.retries} retries.`).catch(() => {});
         }
       }
     }
@@ -647,7 +755,7 @@ function createDataBackup(label, actorId) {
     if (fs.existsSync(filePath)) {
       const content = fs.readFileSync(filePath, "utf-8");
       payload.files[key] = content;
-      payload.checksums[key] = createHash("sha256").update(content).digest("hex");
+      payload.checksums[key] = sha256(content);
     } else {
       payload.files[key] = null;
       payload.checksums[key] = "";
@@ -690,30 +798,9 @@ function restoreDataBackup(file) {
 }
 
 function verifyBackupPayload(payload) {
-  if (!payload || typeof payload !== "object") {
-    return { ok: false, message: "Backup payload is not an object." };
-  }
-  if (!payload.files || typeof payload.files !== "object") {
-    return { ok: false, message: "Backup payload is missing files map." };
-  }
-  for (const [key, filePath] of Object.entries(dataFiles)) {
-    const content = payload.files[key];
-    if (content === null || content === undefined) continue;
-    const text = String(content);
-    if (key === "audit") continue;
-    try {
-      JSON.parse(text);
-    } catch {
-      return { ok: false, message: `Backup file "${key}" is not valid JSON for ${filePath}.` };
-    }
-    if (payload.checksums && payload.checksums[key]) {
-      const digest = createHash("sha256").update(text).digest("hex");
-      if (digest !== payload.checksums[key]) {
-        return { ok: false, message: `Checksum mismatch for ${key}.` };
-      }
-    }
-  }
-  return { ok: true, message: "Backup payload verified." };
+  const keys = Object.keys(dataFiles);
+  const jsonKeys = keys.filter((k) => k !== "audit");
+  return verifyBackupPayloadCore(payload, keys, jsonKeys);
 }
 
 function verifyBackupFile(file) {
@@ -773,12 +860,16 @@ function applyBackupRetention() {
 function bumpMetric(name, commandName) {
   if (name === "command") {
     metrics.commandsTotal += 1;
+    commandWindowTotal += 1;
     if (commandName) {
       metrics.byCommand[commandName] = (metrics.byCommand[commandName] || 0) + 1;
     }
     return;
   }
-  if (name === "commandError") metrics.commandErrors += 1;
+  if (name === "commandError") {
+    metrics.commandErrors += 1;
+    commandWindowErrors += 1;
+  }
   if (name === "apiCall") metrics.apiCalls += 1;
   if (name === "apiError") metrics.apiErrors += 1;
   if (name === "schedulerRun") metrics.schedulerRuns += 1;
@@ -788,9 +879,7 @@ function bumpMetric(name, commandName) {
 async function adminFetch(pathname, ctx = {}) {
   bumpMetric("apiCall");
   const reqId = ctx.reqId || "";
-  const headers = {
-    "X-Admin-Key": apiKey
-  };
+  const headers = {};
 
   const authHeader = getAdminAuthHeader();
   if (authHeader) {
@@ -875,6 +964,7 @@ function statusMention(status) {
 function summarizeMetrics() {
   const pendingJobs = loadJobs().filter((x) => x.status === "pending").length;
   return [
+    `Deploy: ${deployTag}`,
     `Uptime: ${formatUptime(process.uptime())}`,
     `Commands: ${metrics.commandsTotal} (${metrics.commandErrors} errors)`,
     `API Calls: ${metrics.apiCalls} (${metrics.apiErrors} errors)`,
@@ -920,9 +1010,10 @@ async function checkAdminApi() {
 
 async function runStartupDiagnostics() {
   console.log("[diag] Starting startup diagnostics...");
+  console.log(`[diag] Deploy tag: ${deployTag} | mode=${dryRunMode ? "dry-run" : (stagingMode ? "staging" : "live")}`);
   console.log(`[diag] Scheduler minutes: status=${autoStatusMinutes}, updates=${autoUpdatesMinutes}, transmissions=${autoTransmissionsMinutes}, mods=${autoModsMinutes}, activity=${autoActivityMinutes}`);
   console.log(`[diag] Role gates: allowedRoleIds=${allowedRoleIds.length}, ownerRoleIds=${ownerRoleIds.length}`);
-  console.log(`[diag] Admin auth headers: x-admin-key=${apiKey ? "set" : "missing"}, basic-auth=${getAdminAuthHeader() ? "set" : "missing"}`);
+  console.log(`[diag] Admin auth header: basic-auth=${getAdminAuthHeader() ? "set" : "missing"}`);
 
   const checks = await Promise.all([
     checkAdminApi(),
@@ -1024,7 +1115,7 @@ client.once("clientReady", () => {
   logEvent("info", "discord.ready", { userTag: client.user?.tag || "unknown" });
   if (client.user) {
     client.user.setPresence({
-      activities: [{ name: botActivity }],
+      activities: [{ name: `${botActivity} [${deployTag}]`.slice(0, 120) }],
       status: "online"
     });
   }
@@ -1132,6 +1223,22 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
+    if (!shouldBypassMaintenance(interaction.commandName)) {
+      const maintenance = loadMaintenanceState();
+      if (maintenance.enabled) {
+        const member = interaction.inGuild() && interaction.guild
+          ? await interaction.guild.members.fetch(interaction.user.id).catch(() => null)
+          : null;
+        const isStaff = Boolean(member && isStaffMember(interaction, member));
+        if (!isStaff) {
+          auditStatus = "maintenance_blocked";
+          auditNote = "maintenance-mode";
+          await interaction.reply({ content: `Maintenance mode is enabled. ${maintenance.message}`, ephemeral: true });
+          return;
+        }
+      }
+    }
+
     if (interaction.commandName === "ping") {
       await interaction.reply(`Pong. ${client.ws.ping}ms`);
       return;
@@ -1151,7 +1258,7 @@ client.on("interactionCreate", async (interaction) => {
           "/rules, /join, /links, /lore, /moddiff",
           "/poll, /event, /ticket",
           "/purge, /slowmode, /lock, /unlock",
-          "/audit, /incident, /backup",
+          "/audit, /incident, /backup, /ops",
           "/health, /metrics, /announce, /reminder, /activity, /roll"
         ].join("\n"),
         ephemeral: true
@@ -1984,6 +2091,82 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
+    if (interaction.commandName === "ops") {
+      const member = await requireStaff(interaction, "ops");
+      if (!member) return;
+      const sub = interaction.options.getSubcommand();
+
+      if (sub === "status") {
+        const jobs = loadJobs();
+        const pendingJobs = jobs.filter((x) => x.status === "pending").length;
+        const smoke = loadSmokeStatus();
+        const maintenance = loadMaintenanceState();
+        const state = loadState();
+        const lastSchedulerErr = state.lastSchedulerErrorAt || "none";
+        const embed = new EmbedBuilder()
+          .setTitle("Ops Status")
+          .setDescription("Current operational state of the Discord bot")
+          .addFields(
+            { name: "Deploy", value: deployTag, inline: true },
+            { name: "Mode", value: dryRunMode ? "dry-run" : (stagingMode ? "staging" : "live"), inline: true },
+            { name: "Maintenance", value: maintenance.enabled ? `on - ${truncate(maintenance.message, 80)}` : "off", inline: false },
+            { name: "Queue", value: `${pendingJobs} pending / ${metrics.queueFailed} failed`, inline: true },
+            { name: "Schedulers", value: `${metrics.schedulerRuns} runs / ${metrics.schedulerErrors} errors`, inline: true },
+            { name: "Command Errors", value: `${metrics.commandErrors}/${metrics.commandsTotal}`, inline: true },
+            { name: "Last Scheduler Error", value: String(lastSchedulerErr), inline: false },
+            { name: "Smoke", value: smoke.checkedAt ? `${smoke.ok ? "PASS" : "FAIL"} @ ${smoke.checkedAt}` : "No smoke status file", inline: false }
+          )
+          .setColor(maintenance.enabled ? 0xf59e0b : 0x22c55e)
+          .setTimestamp();
+        await interaction.reply({ embeds: [embed], ephemeral: true });
+        return;
+      }
+
+      if (sub === "maintenance") {
+        const stateValue = interaction.options.getString("state", true);
+        const message = interaction.options.getString("message") || "Server maintenance in progress. Please try again soon.";
+        const enabled = stateValue === "on";
+        setMaintenanceState(enabled, message, interaction.user.id);
+        if (enabled) {
+          await postMaintenanceBanner(reqId);
+        }
+        await interaction.reply({ content: `Maintenance mode ${enabled ? "enabled" : "disabled"}.`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "inventory") {
+        if (!interaction.inGuild() || !interaction.guild) {
+          await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+          return;
+        }
+        const mode = interaction.options.getString("mode") || "summary";
+        await interaction.guild.members.fetch();
+        await interaction.guild.roles.fetch();
+        await interaction.guild.channels.fetch();
+        const inv = buildGuildInventory(interaction.guild);
+
+        if (mode === "export") {
+          const name = `guild-inventory-${interaction.guild.id}-${new Date().toISOString().slice(0, 10)}.json`;
+          await interaction.reply({
+            content: `Exported inventory for ${interaction.guild.name}.`,
+            ephemeral: true,
+            files: [{ attachment: Buffer.from(JSON.stringify(inv, null, 2), "utf-8"), name }]
+          });
+          return;
+        }
+
+        const summary = [
+          `Guild: ${inv.guild.name} (${inv.guild.id})`,
+          `Members: ${inv.members.length}`,
+          `Roles: ${inv.roles.length}`,
+          `Channels: ${inv.channels.length}`,
+          `Top roles: ${inv.roles.slice(0, 8).map((r) => r.name).join(", ") || "none"}`
+        ].join("\n");
+        await interaction.reply({ content: summary, ephemeral: true });
+        return;
+      }
+    }
+
     if (interaction.commandName === "health") {
       const member = await requireStaff(interaction);
       if (!member) return;
@@ -2005,6 +2188,7 @@ client.on("interactionCreate", async (interaction) => {
         .setTitle("Bot Health")
         .setDescription(summary)
         .addFields(
+          { name: "Deploy", value: deployTag, inline: true },
           { name: "Gateway Ping", value: `${client.ws.ping}ms`, inline: true },
           { name: "Uptime", value: formatUptime(process.uptime()), inline: true },
           { name: "Schedulers", value: `S:${autoStatusMinutes} U:${autoUpdatesMinutes} T:${autoTransmissionsMinutes} M:${autoModsMinutes} A:${autoActivityMinutes}`, inline: false }
@@ -2014,7 +2198,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (details) {
         embed.addFields(
-          { name: "Auth", value: `API Key: ${apiKey ? "set" : "missing"}\nBasic Auth: ${getAdminAuthHeader() ? "set" : "missing"}`, inline: false },
+          { name: "Auth", value: `Basic Auth: ${getAdminAuthHeader() ? "set" : "missing"}`, inline: false },
           { name: "Runtime", value: summarizeMetrics(), inline: false }
         );
       }
@@ -2469,6 +2653,7 @@ client.on("interactionCreate", async (interaction) => {
     auditStatus = "error";
     auditNote = err instanceof Error ? truncate(err.message, 220) : truncate(String(err), 220);
     bumpMetric("commandError");
+    await sendOpsAlert("command-error", `/${interaction.commandName || "unknown"} failed: ${auditNote}`, reqId);
     logEvent("error", "command.error", {
       reqId,
       command: interaction.commandName || "",
@@ -2757,13 +2942,86 @@ async function runBackupMaintenance() {
   }
 }
 
+async function runRetentionMaintenance() {
+  bumpMetric("schedulerRun");
+
+  if (fs.existsSync(auditLogFile)) {
+    const cutoff = Date.now() - auditRetentionDays * 24 * 60 * 60 * 1000;
+    const lines = fs.readFileSync(auditLogFile, "utf-8").split("\n").filter(Boolean);
+    const kept = lines.filter((line) => {
+      try {
+        const row = JSON.parse(line);
+        const ts = new Date(row.timeUtc || 0).getTime();
+        return Number.isFinite(ts) && ts >= cutoff;
+      } catch {
+        return false;
+      }
+    });
+    if (kept.length !== lines.length) {
+      fs.writeFileSync(auditLogFile, kept.length ? `${kept.join("\n")}\n` : "");
+      logEvent("info", "retention.audit.pruned", { removed: lines.length - kept.length });
+    }
+  }
+
+  const incidents = loadIncidents();
+  const incidentCutoff = Date.now() - incidentRetentionDays * 24 * 60 * 60 * 1000;
+  const keptIncidents = incidents.filter((row) => {
+    const ts = new Date(row.createdAt || 0).getTime();
+    return Number.isFinite(ts) && ts >= incidentCutoff;
+  });
+  if (keptIncidents.length !== incidents.length) {
+    saveIncidents(keptIncidents);
+    logEvent("info", "retention.incidents.pruned", { removed: incidents.length - keptIncidents.length });
+  }
+}
+
+async function runOpsWatchdog() {
+  bumpMetric("schedulerRun");
+  const state = loadState();
+  const jobs = loadJobs();
+  const pendingJobs = jobs.filter((x) => x.status === "pending").length;
+  if (pendingJobs >= queueBacklogAlertThreshold) {
+    await sendOpsAlert("queue-backlog", `Queue backlog is ${pendingJobs}, threshold is ${queueBacklogAlertThreshold}.`);
+  }
+
+  const rate = commandWindowTotal > 0 ? (commandWindowErrors / commandWindowTotal) : 0;
+  if (commandWindowTotal >= 10 && rate >= commandErrorRateThreshold) {
+    await sendOpsAlert("command-error-rate", `Command error rate is ${(rate * 100).toFixed(1)}% over ${commandWindowTotal} recent commands.`);
+  }
+  commandWindowTotal = 0;
+  commandWindowErrors = 0;
+
+  if (metrics.schedulerErrors > Number(state.lastSchedulerErrorsSeen || 0)) {
+    state.lastSchedulerErrorsSeen = metrics.schedulerErrors;
+    saveState(state);
+    await sendOpsAlert("scheduler-errors", `Scheduler errors increased to ${metrics.schedulerErrors}.`);
+  }
+
+  const smoke = loadSmokeStatus();
+  if (!smoke.checkedAt) {
+    await sendOpsAlert("smoke-missing", "No smoke status found. Run npm run smoke.");
+    return;
+  }
+  const ageMs = Date.now() - new Date(smoke.checkedAt).getTime();
+  if (smoke.ok === false) {
+    await sendOpsAlert("smoke-failed", `Latest smoke check failed at ${smoke.checkedAt}.`);
+  } else if (ageMs > smokeStatusMaxAgeMinutes * 60 * 1000) {
+    await sendOpsAlert("smoke-stale", `Latest smoke check is stale (${Math.floor(ageMs / 60000)} minutes old).`);
+  }
+}
+
 function safeScheduler(task) {
   task().catch((err) => {
     bumpMetric("schedulerError");
+    const state = loadState();
+    state.lastSchedulerErrorAt = new Date().toISOString();
+    state.lastSchedulerErrorTask = task.name || "anonymous";
+    saveState(state);
     logEvent("error", "scheduler.task.failed", {
       task: task.name || "anonymous",
       error: err instanceof Error ? err.message : String(err)
     });
+    sendOpsAlert("scheduler-task-failed", `Task ${task.name || "anonymous"} failed: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
   });
 }
 
@@ -2773,6 +3031,7 @@ function startSchedulers() {
   safeScheduler(postLatestTransmission);
   safeScheduler(postModsChange);
   safeScheduler(postActivityLog);
+  safeScheduler(runOpsWatchdog);
 
   setInterval(() => safeScheduler(postStatusUpdate), intervalMs(autoStatusMinutes));
   setInterval(() => safeScheduler(postLatestUpdate), intervalMs(autoUpdatesMinutes));
@@ -2784,6 +3043,8 @@ function startSchedulers() {
   setInterval(() => safeScheduler(runDailySummary), 60 * 1000);
   setInterval(() => safeScheduler(runCommunityMaintenance), 5 * 60 * 1000);
   setInterval(() => safeScheduler(runBackupMaintenance), 60 * 60 * 1000);
+  setInterval(() => safeScheduler(runRetentionMaintenance), 60 * 60 * 1000);
+  setInterval(() => safeScheduler(runOpsWatchdog), 60 * 1000);
 }
 
 client.login(token);

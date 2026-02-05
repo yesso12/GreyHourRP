@@ -31,6 +31,19 @@ EnvironmentFile=${APP_DIR}/.env
 ExecStart=${NPM_BIN} start
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+ReadWritePaths=${APP_DIR}/data
+UMask=0077
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
@@ -39,6 +52,7 @@ SERVICE
 sudo systemctl daemon-reload
 sudo systemctl enable ${SERVICE_NAME}
 
+sudo bash -lc "cd '$APP_DIR' && ${NPM_BIN} run preflight"
 sudo bash -lc "cd '$APP_DIR' && set -a && source .env && set +a && ${NPM_BIN} run register"
 sudo systemctl restart ${SERVICE_NAME}
 
