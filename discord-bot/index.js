@@ -652,6 +652,29 @@ function loadRoleSyncRules() {
     .filter((r) => r.sourceRoleId && r.applyRoleIds.length);
 }
 
+function buildRoleSyncPlan(member, rules) {
+  const managedRoleIds = new Set();
+  const desiredByRoleId = new Map();
+  for (const rule of rules) {
+    const hasSource = member.roles.cache.has(rule.sourceRoleId);
+    for (const roleId of rule.applyRoleIds) {
+      managedRoleIds.add(roleId);
+      const currentDesired = desiredByRoleId.get(roleId) || false;
+      desiredByRoleId.set(roleId, currentDesired || hasSource);
+    }
+  }
+
+  const toAdd = [];
+  const toRemove = [];
+  for (const roleId of managedRoleIds) {
+    const hasRole = member.roles.cache.has(roleId);
+    const shouldHave = Boolean(desiredByRoleId.get(roleId));
+    if (shouldHave && !hasRole) toAdd.push(roleId);
+    if (!shouldHave && hasRole) toRemove.push(roleId);
+  }
+  return { toAdd, toRemove, managedCount: managedRoleIds.size };
+}
+
 function loadJobs() {
   return readJsonFile(jobsFile, []);
 }
@@ -1608,25 +1631,18 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
     const rules = loadRoleSyncRules();
     if (!rules.length) return;
 
-    const oldRoles = oldMember.roles.cache;
-    const newRoles = newMember.roles.cache;
+    const sourceChanged = rules.some((rule) => oldMember.roles.cache.has(rule.sourceRoleId) !== newMember.roles.cache.has(rule.sourceRoleId));
+    if (!sourceChanged) return;
+
+    const plan = buildRoleSyncPlan(newMember, rules);
     let changed = false;
-
-    for (const rule of rules) {
-      const hadSource = oldRoles.has(rule.sourceRoleId);
-      const hasSource = newRoles.has(rule.sourceRoleId);
-      if (hadSource === hasSource) continue;
-
-      for (const roleId of rule.applyRoleIds) {
-        if (hasSource && !newRoles.has(roleId)) {
-          await newMember.roles.add(roleId, `Role sync: source ${rule.sourceRoleId} gained`).catch(() => null);
-          changed = true;
-        }
-        if (!hasSource && newRoles.has(roleId)) {
-          await newMember.roles.remove(roleId, `Role sync: source ${rule.sourceRoleId} lost`).catch(() => null);
-          changed = true;
-        }
-      }
+    for (const roleId of plan.toAdd) {
+      await newMember.roles.add(roleId, "Role sync: source role mapping gained").catch(() => null);
+      changed = true;
+    }
+    for (const roleId of plan.toRemove) {
+      await newMember.roles.remove(roleId, "Role sync: source role mapping lost").catch(() => null);
+      changed = true;
     }
 
     if (changed) {
@@ -2002,7 +2018,7 @@ client.on("interactionCreate", async (interaction) => {
           "/rules, /join, /links, /lore, /moddiff",
           "/poll, /event, /ticket",
           "/purge, /slowmode, /lock, /unlock",
-          "/audit, /incident, /backup, /ops, /modcall, /mod, /admin",
+          "/audit, /incident, /backup, /ops, /rolesync, /modcall, /mod, /admin",
           "/health, /metrics, /announce, /reminder, /activity, /roll"
         ].join("\n"),
         ephemeral: true
@@ -3494,6 +3510,77 @@ client.on("interactionCreate", async (interaction) => {
           `Top roles: ${inv.roles.slice(0, 8).map((r) => r.name).join(", ") || "none"}`
         ].join("\n");
         await interaction.editReply({ content: summary });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "rolesync") {
+      const member = await requireStaff(interaction, "ops");
+      if (!member) return;
+      if (!interaction.inGuild() || !interaction.guild) {
+        await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+        return;
+      }
+
+      const sub = interaction.options.getSubcommand();
+      if (sub === "validate") {
+        const apply = interaction.options.getBoolean("apply") || false;
+        const rules = loadRoleSyncRules();
+        if (!rules.length) {
+          await interaction.reply({ content: "No role-sync rules configured.", ephemeral: true });
+          return;
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        await interaction.guild.members.fetch();
+        const members = interaction.guild.members.cache.filter((m) => !m.user.bot);
+        let scanned = 0;
+        let driftedMembers = 0;
+        let addCount = 0;
+        let removeCount = 0;
+        let appliedAdds = 0;
+        let appliedRemoves = 0;
+        const examples = [];
+
+        for (const row of members.values()) {
+          scanned += 1;
+          const plan = buildRoleSyncPlan(row, rules);
+          if (!plan.toAdd.length && !plan.toRemove.length) continue;
+          driftedMembers += 1;
+          addCount += plan.toAdd.length;
+          removeCount += plan.toRemove.length;
+          if (examples.length < 8) {
+            examples.push(`<@${row.id}> +${plan.toAdd.length}/-${plan.toRemove.length}`);
+          }
+          if (!apply) continue;
+          for (const roleId of plan.toAdd) {
+            const ok = await row.roles.add(roleId, "Role sync validate/apply").then(() => true).catch(() => false);
+            if (ok) appliedAdds += 1;
+          }
+          for (const roleId of plan.toRemove) {
+            const ok = await row.roles.remove(roleId, "Role sync validate/apply").then(() => true).catch(() => false);
+            if (ok) appliedRemoves += 1;
+          }
+        }
+
+        if (apply && (appliedAdds || appliedRemoves)) {
+          metrics.roleSyncUpdates += 1;
+        }
+
+        const lines = [
+          `RoleSync ${apply ? "Validate+Apply" : "Validate"} complete.`,
+          `Rules: ${rules.length}`,
+          `Members scanned: ${scanned}`,
+          `Drifted members: ${driftedMembers}`,
+          `Planned changes: +${addCount} / -${removeCount}`
+        ];
+        if (apply) {
+          lines.push(`Applied changes: +${appliedAdds} / -${appliedRemoves}`);
+        }
+        if (examples.length) {
+          lines.push(`Examples: ${examples.join(", ")}`);
+        }
+        await interaction.editReply({ content: truncate(lines.join("\n"), 1900) });
         return;
       }
     }

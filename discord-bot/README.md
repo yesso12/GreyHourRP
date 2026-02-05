@@ -156,6 +156,7 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/help`
 - `/health`
 - `/ops status|maintenance|inventory|safemode`
+- `/rolesync validate`
 - `/modcall setup|create|list|claim|transfer|close|status|evidence|flag|template|export|reopen`
 - `/mod shift|coverage|metrics`
 - `/admin purge|lockdown|unlockdown|rolegrant|rolerevoke|snapshot|rollback|health|doctor`

@@ -83,6 +83,18 @@ const commands = [
         )
     ),
   new SlashCommandBuilder()
+    .setName("rolesync")
+    .setDescription("Validate and optionally repair role-sync mappings")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub
+        .setName("validate")
+        .setDescription("Check role-sync drift and optionally apply fixes")
+        .addBooleanOption((opt) =>
+          opt.setName("apply").setDescription("Apply missing/removal fixes").setRequired(false)
+        )
+    ),
+  new SlashCommandBuilder()
     .setName("modcall")
     .setDescription("Real-time moderator call workflow")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
