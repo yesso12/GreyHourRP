@@ -100,6 +100,24 @@ const commands = [
               { name: "off", value: "off" }
             )
         )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("remediate")
+        .setDescription("Run auto-remediation recipe")
+        .addStringOption((opt) =>
+          opt.setName("recipe")
+            .setDescription("Remediation recipe")
+            .setRequired(true)
+            .addChoices(
+              { name: "raid", value: "raid" },
+              { name: "spam", value: "spam" },
+              { name: "harassment", value: "harassment" }
+            )
+        )
+        .addChannelOption((opt) =>
+          opt.setName("channel").setDescription("Target channel (default current)").setRequired(false)
+        )
     ),
   new SlashCommandBuilder()
     .setName("rolesync")
@@ -240,6 +258,12 @@ const commands = [
             )
         )
         .addStringOption((opt) => opt.setName("reason").setDescription("Reason for change").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("vault")
+        .setDescription("Create evidence vault link for a case")
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
     ),
   new SlashCommandBuilder()
     .setName("case")
@@ -292,6 +316,77 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption((opt) =>
       opt.setName("text").setDescription("Text to analyze").setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("lang")
+    .setDescription("Set your language preference")
+    .addStringOption((opt) =>
+      opt.setName("locale")
+        .setDescription("Language locale")
+        .setRequired(true)
+        .addChoices(
+          { name: "English", value: "en" },
+          { name: "Spanish", value: "es" },
+          { name: "Portuguese", value: "pt" },
+          { name: "French", value: "fr" }
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("voice")
+    .setDescription("Voice moderation tools")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub.setName("panic-move")
+        .setDescription("Move all users in your current voice channel to target voice channel")
+        .addChannelOption((opt) => opt.setName("target").setDescription("Target voice channel").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("mute-cooldown")
+        .setDescription("Timeout all users in your current voice channel for a short cooldown")
+        .addIntegerOption((opt) => opt.setName("minutes").setDescription("Cooldown minutes (1-30)").setRequired(false))
+    ),
+  new SlashCommandBuilder()
+    .setName("trustgraph")
+    .setDescription("Analyze trust/risk context for a user")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addUserOption((opt) => opt.setName("user").setDescription("Target user").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("policy")
+    .setDescription("Policy simulator tools")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub.setName("test")
+        .setDescription("Test whether a user can run a command")
+        .addUserOption((opt) => opt.setName("user").setDescription("Target user").setRequired(true))
+        .addStringOption((opt) => opt.setName("command").setDescription("Command name without slash").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("copilot")
+    .setDescription("Staff copilot recommendations")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub.setName("suggest")
+        .setDescription("Suggest next best moderation actions for a case")
+        .addStringOption((opt) => opt.setName("case_id").setDescription("Case id").setRequired(true))
+    ),
+  new SlashCommandBuilder()
+    .setName("shiftplan")
+    .setDescription("Moderator shift scheduling")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub.setName("add")
+        .setDescription("Add a shift reminder")
+        .addStringOption((opt) => opt.setName("time_utc").setDescription("UTC time HH:MM").setRequired(true))
+        .addStringOption((opt) => opt.setName("note").setDescription("Shift note").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("list")
+        .setDescription("List your shift reminders")
+    )
+    .addSubcommand((sub) =>
+      sub.setName("remove")
+        .setDescription("Remove shift reminder by id")
+        .addStringOption((opt) => opt.setName("id").setDescription("Shift id").setRequired(true))
     ),
   new SlashCommandBuilder()
     .setName("handoff")
@@ -559,6 +654,11 @@ const commands = [
       sub
         .setName("close")
         .setDescription("Close the current ticket thread")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("intake")
+        .setDescription("Open structured ticket intake form")
     ),
   new SlashCommandBuilder()
     .setName("moddiff")
@@ -874,6 +974,19 @@ const commands = [
       sub.setName("report")
         .setDescription("Generate post-incident report")
         .addStringOption((opt) => opt.setName("id").setDescription("Incident id").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("postmortem_create")
+        .setDescription("Create postmortem draft for incident")
+        .addStringOption((opt) => opt.setName("id").setDescription("Incident id").setRequired(true))
+        .addStringOption((opt) => opt.setName("impact").setDescription("Impact summary").setRequired(true))
+        .addStringOption((opt) => opt.setName("root_cause").setDescription("Root cause").setRequired(true))
+        .addStringOption((opt) => opt.setName("prevention").setDescription("Prevention plan").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("postmortem_approve")
+        .setDescription("Approve postmortem draft by id")
+        .addStringOption((opt) => opt.setName("postmortem_id").setDescription("Postmortem id").setRequired(true))
     ),
   new SlashCommandBuilder()
     .setName("backup")

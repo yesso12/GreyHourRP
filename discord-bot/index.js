@@ -3,7 +3,7 @@ import fs from "fs";
 import http from "http";
 import path from "path";
 import { randomUUID } from "crypto";
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, Client, EmbedBuilder, GatewayIntentBits, PermissionsBitField } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, Client, EmbedBuilder, GatewayIntentBits, ModalBuilder, PermissionsBitField, TextInputBuilder, TextInputStyle } from "discord.js";
 import { canAccessCommand, normalizePolicy } from "./lib/policy.js";
 import { sha256, verifyBackupPayload as verifyBackupPayloadCore } from "./lib/backup.js";
 
@@ -84,6 +84,7 @@ const smokeStatusMaxAgeMinutes = Number(process.env.SMOKE_STATUS_MAX_AGE_MINUTES
 const auditRetentionDays = Number(process.env.AUDIT_RETENTION_DAYS || 30);
 const incidentRetentionDays = Number(process.env.INCIDENT_RETENTION_DAYS || 180);
 const dashboardBaseUrl = process.env.DASHBOARD_BASE_URL || "";
+const toxicityAlertThreshold = Number(process.env.TOXICITY_ALERT_THRESHOLD || 6);
 
 function validateStartupConfig() {
   const errors = [];
@@ -149,6 +150,9 @@ const communityFile = path.join(stateDir, "community.json");
 const incidentsFile = path.join(stateDir, "incidents.json");
 const modCallsFile = path.join(stateDir, "modcalls.json");
 const ticketsFile = path.join(stateDir, "tickets.json");
+const userLocalesFile = path.join(stateDir, "user-locales.json");
+const shiftPlansFile = path.join(stateDir, "shift-plans.json");
+const postmortemsFile = path.join(stateDir, "postmortems.json");
 const adminSnapshotsFile = path.join(stateDir, "admin-snapshots.json");
 const auditLogFile = path.join(stateDir, "audit.log.jsonl");
 const jobsFile = path.join(stateDir, "jobs.json");
@@ -185,6 +189,7 @@ const metrics = {
 const commandCooldowns = new Map();
 const abuseUserWindow = new Map();
 const abuseChannelWindow = new Map();
+const toxicityWindow = new Map();
 let jobWorkerRunning = false;
 let metricsServer = null;
 let commandWindowTotal = 0;
@@ -203,6 +208,9 @@ const dataFiles = {
   community: communityFile,
   incidents: incidentsFile,
   tickets: ticketsFile,
+  locales: userLocalesFile,
+  shiftPlans: shiftPlansFile,
+  postmortems: postmortemsFile,
   modcalls: modCallsFile,
   audit: auditLogFile
 };
@@ -286,15 +294,25 @@ const HELP_CATALOG = [
   { syntax: "/case assign-next", desc: "Auto-assign next open case to least-busy on-shift mod.", staffOnly: true, policyKey: "modcall" },
   { syntax: "/case timeline", desc: "Render full timeline for a case.", staffOnly: true, policyKey: "modcall" },
   { syntax: "/triage", desc: "Analyze issue text and suggest category/urgency/actions.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/lang", desc: "Set your language preference for bot responses.", staffOnly: false },
+  { syntax: "/voice panic-move", desc: "Move everyone in your current voice channel to another channel.", staffOnly: true, policyKey: "mod" },
+  { syntax: "/voice mute-cooldown", desc: "Apply short timeout to users in your current voice channel.", staffOnly: true, policyKey: "mod" },
+  { syntax: "/trustgraph", desc: "Summarize trust/risk context for a user.", staffOnly: true, policyKey: "incident" },
+  { syntax: "/policy test", desc: "Simulate whether a user can run a command by policy.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/copilot suggest", desc: "Get next-step moderation recommendations for a case.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/shiftplan add|list|remove", desc: "Manage personal shift reminders (UTC).", staffOnly: true, policyKey: "mod" },
   { syntax: "/mod", desc: "Set shift status and view moderation metrics.", staffOnly: true, policyKey: "mod" },
   { syntax: "/incident", desc: "Create/list/resolve/link moderation incidents.", staffOnly: true, policyKey: "incident" },
   { syntax: "/incident correlate", desc: "Correlate incident/case/ticket patterns for a user.", staffOnly: true, policyKey: "incident" },
   { syntax: "/incident report", desc: "Generate post-incident summary report.", staffOnly: true, policyKey: "incident" },
+  { syntax: "/incident postmortem_create", desc: "Draft a postmortem for an incident.", staffOnly: true, policyKey: "incident" },
+  { syntax: "/incident postmortem_approve", desc: "Approve a postmortem draft.", staffOnly: true, policyKey: "incident" },
   { syntax: "/audit", desc: "View/export command audit logs.", staffOnly: true, policyKey: "audit" },
   { syntax: "/backup", desc: "Create/list/restore bot data backups.", staffOnly: true, policyKey: "backup" },
   { syntax: "/ops", desc: "Operations status, maintenance, safemode, inventory.", staffOnly: true, policyKey: "ops" },
   { syntax: "/ops dashboard", desc: "Show dashboard and metrics endpoints.", staffOnly: true, policyKey: "ops" },
   { syntax: "/ops simulation", desc: "Toggle simulation mode for drills.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/ops remediate", desc: "Apply one-click incident remediation recipe to a channel.", staffOnly: true, policyKey: "ops" },
   { syntax: "/rolesync", desc: "Preview/validate role-sync rules.", staffOnly: true, policyKey: "ops" },
   { syntax: "/permissions audit", desc: "Check missing bot permissions in key channels.", staffOnly: true, policyKey: "ops" },
   { syntax: "/staffpanel", desc: "Open one-click staff action panel.", staffOnly: true, policyKey: "ops" },
@@ -370,6 +388,11 @@ function adjustUserRiskScore(userId, delta, reason = "") {
     at: new Date().toISOString()
   };
   saveState(state);
+}
+
+function getUserLocale(userId) {
+  const map = loadUserLocales();
+  return String(map[userId] || "en");
 }
 
 function loadReminders() {
@@ -450,6 +473,39 @@ function saveTickets(list) {
   try {
     fs.mkdirSync(stateDir, { recursive: true });
     fs.writeFileSync(ticketsFile, JSON.stringify(list, null, 2));
+  } catch {}
+}
+
+function loadUserLocales() {
+  return readJsonFile(userLocalesFile, {});
+}
+
+function saveUserLocales(map) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(userLocalesFile, JSON.stringify(map || {}, null, 2));
+  } catch {}
+}
+
+function loadShiftPlans() {
+  return readJsonFile(shiftPlansFile, []);
+}
+
+function saveShiftPlans(list) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(shiftPlansFile, JSON.stringify(list || [], null, 2));
+  } catch {}
+}
+
+function loadPostmortems() {
+  return readJsonFile(postmortemsFile, []);
+}
+
+function savePostmortems(list) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(postmortemsFile, JSON.stringify(list || [], null, 2));
   } catch {}
 }
 
@@ -2120,6 +2176,22 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
 
 client.on("messageCreate", async (message) => {
   if (!message.guild || message.author.bot) return;
+
+  const toxicPattern = /(kys|kill yourself|nigger|faggot|retard|rape|dox|swat|ddos|die)/i;
+  if (toxicPattern.test(message.content || "")) {
+    const key = `${message.guild.id}:${message.channelId || "unknown"}`;
+    const now = Date.now();
+    const arr = toxicityWindow.get(key) || [];
+    const next = arr.filter((t) => now - t < 10 * 60 * 1000);
+    next.push(now);
+    toxicityWindow.set(key, next);
+    if (next.length >= toxicityAlertThreshold) {
+      const channel = await client.channels.fetch(message.channelId).catch(() => null);
+      await sendOpsAlert("toxicity-spike", `Potential toxicity spike in #${channel?.name || message.channelId}: ${next.length} flagged messages in 10m.`);
+      toxicityWindow.set(key, []);
+    }
+  }
+
   const community = loadCommunity();
   if (!community.raidMode) return;
 
@@ -2139,6 +2211,20 @@ client.on("messageCreate", async (message) => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId === "ticket:intake") {
+      const subject = interaction.fields.getTextInputValue("subject");
+      const details = interaction.fields.getTextInputValue("details");
+      const urgency = interaction.fields.getTextInputValue("urgency");
+      await interaction.reply({
+        content: `Received intake form. Run \`/ticket create subject:\"${truncate(subject, 80)}\" details:\"${truncate(details, 120)}\" urgency:${/(urgent|high)/i.test(urgency) ? "high" : "normal"}\` to open the private ticket.`,
+        ephemeral: true
+      });
+      return;
+    }
+    return;
+  }
+
   if (interaction.isButton()) {
     if (!interaction.inGuild() || !interaction.guild) {
       await interaction.reply({ content: "Buttons only work in server channels.", ephemeral: true });
@@ -2604,6 +2690,170 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.commandName === "staff") {
       await renderStaffList(interaction);
       return;
+    }
+
+    if (interaction.commandName === "lang") {
+      const locale = interaction.options.getString("locale", true);
+      const map = loadUserLocales();
+      map[interaction.user.id] = locale;
+      saveUserLocales(map);
+      const names = { en: "English", es: "Spanish", pt: "Portuguese", fr: "French" };
+      await interaction.reply({ content: `Language preference saved: ${names[locale] || locale}.`, ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "voice") {
+      const staff = await requireStaff(interaction, "mod");
+      if (!staff) return;
+      if (!interaction.inGuild() || !interaction.guild) {
+        await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+        return;
+      }
+      const sub = interaction.options.getSubcommand();
+      const source = interaction.member?.voice?.channel;
+      if (!source || source.type !== ChannelType.GuildVoice) {
+        await interaction.reply({ content: "Join a voice channel first.", ephemeral: true });
+        return;
+      }
+      if (sub === "panic-move") {
+        const target = interaction.options.getChannel("target", true);
+        if (!target || target.type !== ChannelType.GuildVoice) {
+          await interaction.reply({ content: "Target must be a voice channel.", ephemeral: true });
+          return;
+        }
+        if (isSimulationModeEnabled()) {
+          await interaction.reply({ content: `Simulation mode: would move ${source.members.size} users to <#${target.id}>.`, ephemeral: true });
+          return;
+        }
+        let moved = 0;
+        for (const member of source.members.values()) {
+          const ok = await member.voice.setChannel(target, `panic-move by ${interaction.user.tag}`).then(() => true).catch(() => false);
+          if (ok) moved += 1;
+        }
+        await interaction.reply({ content: `Moved ${moved} member(s) to <#${target.id}>.`, ephemeral: true });
+        return;
+      }
+      if (sub === "mute-cooldown") {
+        const minutes = Math.max(1, Math.min(30, interaction.options.getInteger("minutes") || 5));
+        if (isSimulationModeEnabled()) {
+          await interaction.reply({ content: `Simulation mode: would timeout ${source.members.size} users for ${minutes} minutes.`, ephemeral: true });
+          return;
+        }
+        let affected = 0;
+        for (const member of source.members.values()) {
+          if (!member.moderatable) continue;
+          const ok = await member.timeout(minutes * 60 * 1000, `voice mute-cooldown by ${interaction.user.tag}`).then(() => true).catch(() => false);
+          if (ok) affected += 1;
+        }
+        await interaction.reply({ content: `Cooldown timeout applied to ${affected} member(s) for ${minutes} minute(s).`, ephemeral: true });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "trustgraph") {
+      const staff = await requireStaff(interaction, "incident");
+      if (!staff) return;
+      const user = interaction.options.getUser("user", true);
+      const userId = user.id;
+      const incidents = loadIncidents().filter((x) => x.userId === userId);
+      const tickets = loadTickets().filter((x) => x.userId === userId);
+      const modState = loadModCallsState();
+      const cases = modState.cases.filter((x) => x.reporterId === userId || x.targetUserId === userId);
+      const coTargets = {};
+      for (const c of cases) {
+        const other = c.reporterId === userId ? c.targetUserId : c.reporterId;
+        if (other) coTargets[other] = (coTargets[other] || 0) + 1;
+      }
+      const topLinks = Object.entries(coTargets).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, n]) => `<@${id}>:${n}`).join(", ") || "none";
+      await interaction.reply({
+        content: [
+          `Trust Graph: <@${userId}>`,
+          `Risk score: ${getUserRiskScore(userId)}`,
+          `Incidents: ${incidents.length}`,
+          `Tickets: ${tickets.length}`,
+          `Cases: ${cases.length}`,
+          `Top linked users: ${topLinks}`
+        ].join("\n"),
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (interaction.commandName === "policy") {
+      const staff = await requireStaff(interaction, "ops");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      if (sub === "test") {
+        const user = interaction.options.getUser("user", true);
+        const command = interaction.options.getString("command", true).replace(/^\//, "").trim();
+        if (!interaction.inGuild() || !interaction.guild) {
+          await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
+          return;
+        }
+        const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+        if (!member) {
+          await interaction.reply({ content: "User is not in this guild.", ephemeral: true });
+          return;
+        }
+        const allowed = hasPolicyAccess(member, command);
+        await interaction.reply({ content: `Policy test: <@${user.id}> ${allowed ? "CAN" : "CANNOT"} run \`/${command}\`.`, ephemeral: true });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "copilot") {
+      const staff = await requireStaff(interaction, "modcall");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      if (sub === "suggest") {
+        const caseId = interaction.options.getString("case_id", true);
+        const data = loadModCallsState();
+        const row = data.cases.find((x) => x.id === caseId);
+        if (!row) {
+          await interaction.reply({ content: "Case not found.", ephemeral: true });
+          return;
+        }
+        const suggestions = [];
+        if (!row.claimedBy) suggestions.push("Assign or claim this case immediately.");
+        if (!ensureArray(row.evidence).length) suggestions.push("Request evidence via /modcall evidence.");
+        if (!ensureArray(row.history).some((h) => h.action === "status-update")) suggestions.push("Send reporter update via /modcall status.");
+        if (row.priority === "critical") suggestions.push("Escalate to senior staff and apply quick controls.");
+        if (!suggestions.length) suggestions.push("Case looks healthy. Continue with closure checklist.");
+        await interaction.reply({ content: `Copilot suggestions for \`${caseId}\`:\n- ${suggestions.join("\n- ")}`, ephemeral: true });
+        return;
+      }
+    }
+
+    if (interaction.commandName === "shiftplan") {
+      const staff = await requireStaff(interaction, "mod");
+      if (!staff) return;
+      const sub = interaction.options.getSubcommand();
+      const rows = loadShiftPlans();
+      if (sub === "add") {
+        const time = interaction.options.getString("time_utc", true);
+        const note = interaction.options.getString("note") || "";
+        if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(time)) {
+          await interaction.reply({ content: "time_utc must be HH:MM (UTC).", ephemeral: true });
+          return;
+        }
+        const row = { id: makeId("shift"), userId: interaction.user.id, timeUtc: time, note: truncate(note, 200), createdAt: new Date().toISOString() };
+        rows.unshift(row);
+        saveShiftPlans(rows.slice(0, 1000));
+        await interaction.reply({ content: `Shift reminder added: \`${row.id}\` at ${time} UTC.`, ephemeral: true });
+        return;
+      }
+      if (sub === "list") {
+        const mine = rows.filter((x) => x.userId === interaction.user.id).slice(0, 20);
+        await interaction.reply({ content: mine.length ? mine.map((x) => `\`${x.id}\` • ${x.timeUtc} UTC • ${x.note || "no note"}`).join("\n") : "No shift reminders set.", ephemeral: true });
+        return;
+      }
+      if (sub === "remove") {
+        const id = interaction.options.getString("id", true);
+        const next = rows.filter((x) => !(x.id === id && x.userId === interaction.user.id));
+        saveShiftPlans(next);
+        await interaction.reply({ content: `Shift reminder removed: ${id}`, ephemeral: true });
+        return;
+      }
     }
 
     if (interaction.commandName === "lfg") {
@@ -3604,6 +3854,23 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: `Case \`${id}\` priority set to ${level}.`, ephemeral: true });
         return;
       }
+
+      if (sub === "vault") {
+        const id = interaction.options.getString("id", true);
+        const row = data.cases.find((x) => x.id === id);
+        if (!row) {
+          await interaction.reply({ content: "Case not found.", ephemeral: true });
+          return;
+        }
+        const stamp = Date.now();
+        const token = sha256(`${id}:${stamp}:${interaction.user.id}`).slice(0, 24);
+        const base = dashboardBaseUrl || (metricsPort ? `http://${metricsHost}:${metricsPort}` : "");
+        const link = base ? `${base.replace(/\/$/, "")}/evidence/${id}?token=${token}` : `vault://${id}/${token}`;
+        addCaseHistoryRow(row, "vault-link", interaction.user.id, `Evidence vault generated`);
+        saveModCallsState(data);
+        await interaction.reply({ content: `Evidence vault link for \`${id}\`:\n${link}\nExpires: ${new Date(stamp + 24 * 60 * 60 * 1000).toISOString()}`, ephemeral: true });
+        return;
+      }
     }
 
     if (interaction.commandName === "mod") {
@@ -4005,6 +4272,60 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: truncate(report.join("\n"), 1900), ephemeral: true });
         return;
       }
+
+      if (sub === "postmortem_create") {
+        const id = interaction.options.getString("id", true);
+        const impact = interaction.options.getString("impact", true);
+        const rootCause = interaction.options.getString("root_cause", true);
+        const prevention = interaction.options.getString("prevention", true);
+        const incident = incidents.find((x) => x.id === id);
+        if (!incident) {
+          await interaction.reply({ content: "Incident not found.", ephemeral: true });
+          return;
+        }
+        const rows = loadPostmortems();
+        const row = {
+          id: makeId("pm"),
+          incidentId: id,
+          impact: truncate(impact, 600),
+          rootCause: truncate(rootCause, 600),
+          prevention: truncate(prevention, 600),
+          status: "pending",
+          createdBy: interaction.user.id,
+          createdAt: new Date().toISOString(),
+          approvedBy: "",
+          approvedAt: ""
+        };
+        rows.unshift(row);
+        savePostmortems(rows.slice(0, 500));
+        await interaction.reply({ content: `Postmortem draft created: \`${row.id}\` (pending approval).`, ephemeral: true });
+        return;
+      }
+
+      if (sub === "postmortem_approve") {
+        const pmId = interaction.options.getString("postmortem_id", true);
+        const rows = loadPostmortems();
+        const row = rows.find((x) => x.id === pmId);
+        if (!row) {
+          await interaction.reply({ content: "Postmortem not found.", ephemeral: true });
+          return;
+        }
+        row.status = "approved";
+        row.approvedBy = interaction.user.id;
+        row.approvedAt = new Date().toISOString();
+        savePostmortems(rows);
+        await interaction.reply({
+          content: [
+            `Postmortem approved: \`${row.id}\``,
+            `Incident: \`${row.incidentId}\``,
+            `Impact: ${row.impact}`,
+            `Root Cause: ${row.rootCause}`,
+            `Prevention: ${row.prevention}`
+          ].join("\n"),
+          ephemeral: true
+        });
+        return;
+      }
     }
 
     if (interaction.commandName === "backup") {
@@ -4176,6 +4497,32 @@ client.on("interactionCreate", async (interaction) => {
           ].filter(Boolean).join("\n"),
           ephemeral: true
         });
+        return;
+      }
+
+      if (sub === "remediate") {
+        const recipe = interaction.options.getString("recipe", true);
+        const target = interaction.options.getChannel("channel") || interaction.channel;
+        if (!target || !target.isTextBased()) {
+          await interaction.reply({ content: "Invalid remediation channel.", ephemeral: true });
+          return;
+        }
+        if (isSimulationModeEnabled()) {
+          await interaction.reply({ content: `Simulation mode: would run remediation recipe \`${recipe}\` in <#${target.id}>.`, ephemeral: true });
+          return;
+        }
+        if (recipe === "raid") {
+          await target.setRateLimitPerUser(30, `ops remediate raid by ${interaction.user.tag}`).catch(() => null);
+          await target.permissionOverwrites.edit(interaction.guild.roles.everyone, { SendMessages: false }, { reason: `ops remediate raid by ${interaction.user.tag}` }).catch(() => null);
+          await sendMessageWithGuards(target, { content: "🚨 Raid mitigation active. Channel temporarily locked while staff responds." }, "ops.remediate.raid", reqId);
+        } else if (recipe === "spam") {
+          await target.setRateLimitPerUser(15, `ops remediate spam by ${interaction.user.tag}`).catch(() => null);
+          await sendMessageWithGuards(target, { content: "⚠️ Anti-spam controls applied (slowmode 15s)." }, "ops.remediate.spam", reqId);
+        } else if (recipe === "harassment") {
+          await target.setRateLimitPerUser(10, `ops remediate harassment by ${interaction.user.tag}`).catch(() => null);
+          await sendMessageWithGuards(target, { content: "⚠️ Staff review in progress. Please remain civil and on-topic." }, "ops.remediate.harassment", reqId);
+        }
+        await interaction.reply({ content: `Remediation recipe \`${recipe}\` executed in <#${target.id}>.`, ephemeral: true });
         return;
       }
 
@@ -4820,6 +5167,37 @@ client.on("interactionCreate", async (interaction) => {
 
     if (interaction.commandName === "ticket") {
       const sub = interaction.options.getSubcommand();
+
+      if (sub === "intake") {
+        const modal = new ModalBuilder()
+          .setCustomId("ticket:intake")
+          .setTitle("Ticket Intake Form");
+        const subject = new TextInputBuilder()
+          .setCustomId("subject")
+          .setLabel("Subject")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(120);
+        const details = new TextInputBuilder()
+          .setCustomId("details")
+          .setLabel("Details")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(1200);
+        const urgency = new TextInputBuilder()
+          .setCustomId("urgency")
+          .setLabel("Urgency (normal/high/urgent)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(16);
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(subject),
+          new ActionRowBuilder().addComponents(details),
+          new ActionRowBuilder().addComponents(urgency)
+        );
+        await interaction.showModal(modal);
+        return;
+      }
 
       if (sub === "create") {
         if (!interaction.inGuild() || !interaction.guild) {
@@ -5468,6 +5846,73 @@ async function runDailySummary() {
   saveState(state);
 }
 
+async function runShiftPlanReminders() {
+  bumpMetric("schedulerRun");
+
+  if (!client.guilds.cache.size) return;
+  const guild = client.guilds.cache.first();
+  if (!guild) return;
+
+  const rows = loadShiftPlans();
+  if (!rows.length) return;
+
+  const now = new Date();
+  const hhmm = `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
+  const dayKey = now.toISOString().slice(0, 10);
+
+  const state = loadState();
+  const sent = state.shiftReminderSent && typeof state.shiftReminderSent === "object" ? state.shiftReminderSent : {};
+  let changed = false;
+
+  for (const row of rows) {
+    const slot = String(row.timeUtc || "").trim();
+    if (!slot || slot !== hhmm) continue;
+    const id = String(row.id || "").trim();
+    const userId = String(row.userId || "").trim();
+    if (!id || !userId) continue;
+
+    const key = `${id}:${dayKey}:${slot}`;
+    if (sent[key]) continue;
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) {
+      sent[key] = Date.now();
+      changed = true;
+      continue;
+    }
+
+    const content = [
+      "Shift reminder",
+      `Time: ${slot} UTC`,
+      row.note ? `Note: ${truncate(String(row.note || ""), 180)}` : ""
+    ].filter(Boolean).join("\n");
+    const delivered = await member.send({ content }).then(() => true).catch(() => false);
+    if (delivered && modChannelId) {
+      const channel = await client.channels.fetch(modChannelId).catch(() => null);
+      if (channel && channel.isTextBased()) {
+        await sendMessageWithGuards(channel, {
+          content: `⏰ Shift reminder sent to <@${userId}> (${slot} UTC).${row.note ? ` Note: ${truncate(String(row.note || ""), 120)}` : ""}`
+        }, "shiftplan.reminder");
+      }
+    }
+    sent[key] = Date.now();
+    changed = true;
+  }
+
+  const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+  for (const [key, ts] of Object.entries(sent)) {
+    if (Number(ts) < cutoff) {
+      delete sent[key];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    state.shiftReminderSent = sent;
+    saveState(state);
+  }
+}
+
 function normalizeAutomationConfig(raw) {
   return {
     enabled: Boolean(raw?.enabled),
@@ -5956,6 +6401,7 @@ function startSchedulers() {
   setTimeout(() => safeScheduler(runDiscordAutomation), initialDelayMs);
   setTimeout(() => safeScheduler(runModCallEscalations), initialDelayMs);
   setTimeout(() => safeScheduler(runOpsWatchdog), initialDelayMs);
+  setTimeout(() => safeScheduler(runShiftPlanReminders), initialDelayMs);
 
   setInterval(() => safeScheduler(postStatusUpdate), intervalMs(autoStatusMinutes));
   setInterval(() => safeScheduler(postLatestUpdate), intervalMs(autoUpdatesMinutes));
@@ -5972,6 +6418,7 @@ function startSchedulers() {
   setInterval(() => safeScheduler(runModCallEscalations), 60 * 1000);
   setInterval(() => safeScheduler(runModWeeklyDigest), 60 * 1000);
   setInterval(() => safeScheduler(runOpsWatchdog), 60 * 1000);
+  setInterval(() => safeScheduler(runShiftPlanReminders), 60 * 1000);
 }
 
 client.login(token);
