@@ -1,6 +1,8 @@
 import "dotenv/config";
 import fs from "fs";
+import http from "http";
 import path from "path";
+import { createHash, randomUUID } from "crypto";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, Client, EmbedBuilder, GatewayIntentBits } from "discord.js";
 
 const token = process.env.DISCORD_TOKEN;
@@ -47,9 +49,55 @@ const siteUrl = process.env.SITE_URL || apiBase || "https://greyhourrp.xyz";
 const botActivity = process.env.BOT_ACTIVITY_TEXT || "Grey Hour RP | /help";
 const loreSnippet = process.env.LORE_SNIPPET ||
   "Day One did not end with screams or firestorms. It ended with silence. The Grey Hour is the moment the world balanced between what it was and what it would become.";
+const stagingMode = /^(1|true|yes)$/i.test(process.env.STAGING_MODE || "");
+const dryRunMode = /^(1|true|yes)$/i.test(process.env.DRY_RUN_MODE || "");
+const metricsPort = Number(process.env.METRICS_PORT || 0);
+const metricsHost = process.env.METRICS_HOST || "127.0.0.1";
+const abuseWindowSeconds = Number(process.env.ABUSE_WINDOW_SECONDS || 30);
+const abuseUserMax = Number(process.env.ABUSE_USER_MAX_COMMANDS || 12);
+const abuseChannelMax = Number(process.env.ABUSE_CHANNEL_MAX_COMMANDS || 40);
+const backupRetentionDaily = Number(process.env.BACKUP_RETENTION_DAILY || 14);
+const backupRetentionWeekly = Number(process.env.BACKUP_RETENTION_WEEKLY || 8);
+const jobWorkerIntervalSeconds = Number(process.env.JOB_WORKER_INTERVAL_SECONDS || 5);
+const permissionPolicyFile = process.env.PERMISSION_POLICY_FILE || path.join(process.cwd(), "config", "permissions-policy.json");
 
-if (!token || !apiBase || !apiKey) {
-  console.error("Missing DISCORD_TOKEN, ADMIN_API_BASE, or ADMIN_API_KEY");
+function validateStartupConfig() {
+  const errors = [];
+  const warnings = [];
+
+  if (!token) errors.push("DISCORD_TOKEN is required.");
+  if (!apiBase) errors.push("ADMIN_API_BASE is required.");
+  if (!apiKey) errors.push("ADMIN_API_KEY is required.");
+  if (metricsPort && (!Number.isInteger(metricsPort) || metricsPort < 1 || metricsPort > 65535)) {
+    errors.push("METRICS_PORT must be an integer from 1 to 65535.");
+  }
+  const hhmmRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  if (dailyReminderTime && !hhmmRegex.test(dailyReminderTime)) errors.push("DAILY_REMINDER_TIME must match HH:MM.");
+  if (dailySummaryTime && !hhmmRegex.test(dailySummaryTime)) errors.push("DAILY_SUMMARY_TIME must match HH:MM.");
+  if (abuseWindowSeconds < 1) errors.push("ABUSE_WINDOW_SECONDS must be >= 1.");
+  if (abuseUserMax < 1) errors.push("ABUSE_USER_MAX_COMMANDS must be >= 1.");
+  if (abuseChannelMax < 1) errors.push("ABUSE_CHANNEL_MAX_COMMANDS must be >= 1.");
+  if (jobWorkerIntervalSeconds < 1) errors.push("JOB_WORKER_INTERVAL_SECONDS must be >= 1.");
+  if (backupRetentionDaily < 1) errors.push("BACKUP_RETENTION_DAILY must be >= 1.");
+  if (backupRetentionWeekly < 1) errors.push("BACKUP_RETENTION_WEEKLY must be >= 1.");
+
+  if (!announceChannelId) warnings.push("ANNOUNCE_CHANNEL_ID is not configured; announcement features will be limited.");
+  if (!statusChannelId) warnings.push("STATUS_CHANNEL_ID is not configured; status autoposting is disabled.");
+  if (!logChannelId) warnings.push("LOG_CHANNEL_ID is not configured; activity feed is disabled.");
+  if (stagingMode) warnings.push("STAGING_MODE is enabled; outbound channel posts are suppressed.");
+  if (dryRunMode) warnings.push("DRY_RUN_MODE is enabled; no outbound channel posts will be sent.");
+
+  return { errors, warnings };
+}
+
+const startupValidation = validateStartupConfig();
+for (const warning of startupValidation.warnings) {
+  console.warn(`[config] WARN ${warning}`);
+}
+if (startupValidation.errors.length) {
+  for (const error of startupValidation.errors) {
+    console.error(`[config] ERROR ${error}`);
+  }
   process.exit(1);
 }
 
@@ -60,6 +108,7 @@ const eventsFile = path.join(stateDir, "events.json");
 const communityFile = path.join(stateDir, "community.json");
 const incidentsFile = path.join(stateDir, "incidents.json");
 const auditLogFile = path.join(stateDir, "audit.log.jsonl");
+const jobsFile = path.join(stateDir, "jobs.json");
 const backupsDir = path.join(stateDir, "backups");
 
 const metrics = {
@@ -70,9 +119,18 @@ const metrics = {
   apiErrors: 0,
   schedulerRuns: 0,
   schedulerErrors: 0,
-  byCommand: {}
+  byCommand: {},
+  queueEnqueued: 0,
+  queueProcessed: 0,
+  queueFailed: 0,
+  abuseBlocked: 0,
+  logsWritten: 0
 };
 const commandCooldowns = new Map();
+const abuseUserWindow = new Map();
+const abuseChannelWindow = new Map();
+let jobWorkerRunning = false;
+let metricsServer = null;
 const cooldownMs = {
   default: 3000,
   roll: 4000,
@@ -207,6 +265,267 @@ function saveCommunity(data) {
   } catch {}
 }
 
+function makeRequestId() {
+  return randomUUID().replace(/-/g, "").slice(0, 16);
+}
+
+function logEvent(level, event, fields = {}) {
+  metrics.logsWritten += 1;
+  const record = {
+    timeUtc: new Date().toISOString(),
+    level,
+    event,
+    ...fields
+  };
+  const line = JSON.stringify(record);
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.log(line);
+}
+
+function readJsonFile(filePath, fallback) {
+  try {
+    if (!fs.existsSync(filePath)) return fallback;
+    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  } catch {
+    return fallback;
+  }
+}
+
+function loadJobs() {
+  return readJsonFile(jobsFile, []);
+}
+
+function saveJobs(jobs) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(jobsFile, JSON.stringify(jobs, null, 2));
+  } catch {}
+}
+
+function normalizeEmbeds(embeds) {
+  if (!Array.isArray(embeds)) return [];
+  return embeds.map((item) => {
+    if (!item) return null;
+    if (typeof item.toJSON === "function") return item.toJSON();
+    return item;
+  }).filter(Boolean);
+}
+
+function enqueueJob(job) {
+  const jobs = loadJobs();
+  if (job.idempotencyKey) {
+    const existing = jobs.find((x) => x.idempotencyKey === job.idempotencyKey && x.status !== "failed");
+    if (existing) return existing;
+  }
+  const row = {
+    id: makeId("job"),
+    type: job.type || "message",
+    idempotencyKey: job.idempotencyKey || "",
+    channelId: job.channelId || "",
+    content: job.content || "",
+    embeds: normalizeEmbeds(job.embeds),
+    runAt: job.runAt || Date.now(),
+    retries: 0,
+    maxRetries: Math.max(0, Number(job.maxRetries ?? 5)),
+    status: "pending",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    lastError: ""
+  };
+  jobs.push(row);
+  saveJobs(jobs);
+  metrics.queueEnqueued += 1;
+  return row;
+}
+
+function hitWindow(map, key, windowMs) {
+  const now = Date.now();
+  const prev = map.get(key) || [];
+  const next = prev.filter((t) => now - t < windowMs);
+  next.push(now);
+  map.set(key, next);
+  return next.length;
+}
+
+function cleanupAbuseWindows() {
+  const windowMs = abuseWindowSeconds * 1000;
+  const now = Date.now();
+  for (const [k, arr] of abuseUserWindow.entries()) {
+    const next = arr.filter((t) => now - t < windowMs);
+    if (!next.length) abuseUserWindow.delete(k);
+    else abuseUserWindow.set(k, next);
+  }
+  for (const [k, arr] of abuseChannelWindow.entries()) {
+    const next = arr.filter((t) => now - t < windowMs);
+    if (!next.length) abuseChannelWindow.delete(k);
+    else abuseChannelWindow.set(k, next);
+  }
+}
+
+function isAbuseBlocked(interaction) {
+  const windowMs = abuseWindowSeconds * 1000;
+  const isPrivileged = interaction.inGuild() && interaction.member && isAuthorizedMember(interaction.member, interaction.guild?.ownerId);
+  if (isPrivileged) return { blocked: false };
+  const userCount = hitWindow(abuseUserWindow, interaction.user.id, windowMs);
+  const channelKey = interaction.channelId || "dm";
+  const channelCount = hitWindow(abuseChannelWindow, channelKey, windowMs);
+  if (userCount > abuseUserMax || channelCount > abuseChannelMax) {
+    metrics.abuseBlocked += 1;
+    return { blocked: true, userCount, channelCount };
+  }
+  return { blocked: false };
+}
+
+function loadPermissionPolicy() {
+  const fallback = { allowUserIds: [], denyUserIds: [], commandRoleIds: {} };
+  const policy = readJsonFile(permissionPolicyFile, fallback);
+  return {
+    allowUserIds: Array.isArray(policy.allowUserIds) ? policy.allowUserIds : [],
+    denyUserIds: Array.isArray(policy.denyUserIds) ? policy.denyUserIds : [],
+    commandRoleIds: policy.commandRoleIds && typeof policy.commandRoleIds === "object" ? policy.commandRoleIds : {}
+  };
+}
+
+function hasPolicyAccess(member, commandName) {
+  const policy = loadPermissionPolicy();
+  const uid = member.id;
+  if (policy.denyUserIds.includes(uid)) return false;
+  if (policy.allowUserIds.includes(uid)) return true;
+  const requiredRoles = Array.isArray(policy.commandRoleIds[commandName]) ? policy.commandRoleIds[commandName] : [];
+  if (!requiredRoles.length) return true;
+  return member.roles.cache.some((r) => requiredRoles.includes(r.id));
+}
+
+async function sendMessageWithGuards(channel, payload, context, reqId = "") {
+  if (!channel || !channel.isTextBased()) return null;
+  if (stagingMode || dryRunMode) {
+    logEvent("info", "dispatch.skipped", {
+      reqId,
+      context,
+      reason: dryRunMode ? "dry-run" : "staging",
+      channelId: channel.id
+    });
+    return null;
+  }
+  return channel.send(payload);
+}
+
+async function processPendingJobs() {
+  if (jobWorkerRunning) return;
+  jobWorkerRunning = true;
+  try {
+    const jobs = loadJobs();
+    const now = Date.now();
+    const queue = jobs
+      .filter((x) => x.status === "pending" && Number(x.runAt || 0) <= now)
+      .sort((a, b) => Number(a.runAt || 0) - Number(b.runAt || 0));
+
+    for (const job of queue) {
+      try {
+        const channel = await client.channels.fetch(job.channelId).catch(() => null);
+        if (!channel || !channel.isTextBased()) {
+          throw new Error(`Channel not found or not text-based: ${job.channelId}`);
+        }
+        await sendMessageWithGuards(channel, { content: job.content || undefined, embeds: job.embeds || [] }, `job.${job.type}`, "");
+        job.status = "done";
+        job.updatedAt = new Date().toISOString();
+        job.processedAt = new Date().toISOString();
+        metrics.queueProcessed += 1;
+      } catch (err) {
+        job.retries = Number(job.retries || 0) + 1;
+        job.updatedAt = new Date().toISOString();
+        job.lastError = err instanceof Error ? truncate(err.message, 200) : truncate(String(err), 200);
+        if (job.retries > Number(job.maxRetries || 5)) {
+          job.status = "failed";
+          metrics.queueFailed += 1;
+        }
+      }
+    }
+
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const next = jobs.filter((x) => {
+      if (x.status === "pending") return true;
+      const updated = new Date(x.updatedAt || x.createdAt || 0).getTime();
+      return updated >= cutoff;
+    });
+    saveJobs(next);
+  } finally {
+    jobWorkerRunning = false;
+  }
+}
+
+function startMetricsServer() {
+  if (!metricsPort || metricsServer) return;
+  metricsServer = http.createServer((req, res) => {
+    if (!req.url) {
+      res.writeHead(404);
+      res.end("not found");
+      return;
+    }
+    if (req.url === "/healthz") {
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("ok");
+      return;
+    }
+    if (req.url !== "/metrics") {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("not found");
+      return;
+    }
+
+    const jobs = loadJobs();
+    const pendingJobs = jobs.filter((x) => x.status === "pending").length;
+    const lines = [
+      "# HELP gh_bot_uptime_seconds Bot uptime in seconds.",
+      "# TYPE gh_bot_uptime_seconds gauge",
+      `gh_bot_uptime_seconds ${Math.floor(process.uptime())}`,
+      "# HELP gh_bot_commands_total Total slash commands processed.",
+      "# TYPE gh_bot_commands_total counter",
+      `gh_bot_commands_total ${metrics.commandsTotal}`,
+      "# HELP gh_bot_command_errors_total Total command errors.",
+      "# TYPE gh_bot_command_errors_total counter",
+      `gh_bot_command_errors_total ${metrics.commandErrors}`,
+      "# HELP gh_bot_api_calls_total Total Admin API calls.",
+      "# TYPE gh_bot_api_calls_total counter",
+      `gh_bot_api_calls_total ${metrics.apiCalls}`,
+      "# HELP gh_bot_api_errors_total Total Admin API call failures.",
+      "# TYPE gh_bot_api_errors_total counter",
+      `gh_bot_api_errors_total ${metrics.apiErrors}`,
+      "# HELP gh_bot_scheduler_runs_total Total scheduler runs.",
+      "# TYPE gh_bot_scheduler_runs_total counter",
+      `gh_bot_scheduler_runs_total ${metrics.schedulerRuns}`,
+      "# HELP gh_bot_scheduler_errors_total Total scheduler errors.",
+      "# TYPE gh_bot_scheduler_errors_total counter",
+      `gh_bot_scheduler_errors_total ${metrics.schedulerErrors}`,
+      "# HELP gh_bot_queue_enqueued_total Total queue jobs enqueued.",
+      "# TYPE gh_bot_queue_enqueued_total counter",
+      `gh_bot_queue_enqueued_total ${metrics.queueEnqueued}`,
+      "# HELP gh_bot_queue_processed_total Total queue jobs processed.",
+      "# TYPE gh_bot_queue_processed_total counter",
+      `gh_bot_queue_processed_total ${metrics.queueProcessed}`,
+      "# HELP gh_bot_queue_failed_total Total queue jobs failed.",
+      "# TYPE gh_bot_queue_failed_total counter",
+      `gh_bot_queue_failed_total ${metrics.queueFailed}`,
+      "# HELP gh_bot_queue_pending Number of pending queued jobs.",
+      "# TYPE gh_bot_queue_pending gauge",
+      `gh_bot_queue_pending ${pendingJobs}`,
+      "# HELP gh_bot_abuse_blocked_total Command requests blocked by abuse shields.",
+      "# TYPE gh_bot_abuse_blocked_total counter",
+      `gh_bot_abuse_blocked_total ${metrics.abuseBlocked}`
+    ];
+    for (const [commandName, count] of Object.entries(metrics.byCommand)) {
+      lines.push(`gh_bot_command_by_name_total{command="${commandName}"} ${count}`);
+    }
+    res.writeHead(200, { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" });
+    res.end(lines.join("\n"));
+  });
+
+  metricsServer.listen(metricsPort, metricsHost, () => {
+    logEvent("info", "metrics.server.started", { host: metricsHost, port: metricsPort });
+  });
+}
+
 function makeId(prefix) {
   return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
@@ -323,13 +642,17 @@ function createDataBackup(label, actorId) {
     createdAt: new Date().toISOString(),
     actorId,
     label: cleanLabel,
-    files: {}
+    files: {},
+    checksums: {}
   };
   for (const [key, filePath] of Object.entries(dataFiles)) {
     if (fs.existsSync(filePath)) {
-      payload.files[key] = fs.readFileSync(filePath, "utf-8");
+      const content = fs.readFileSync(filePath, "utf-8");
+      payload.files[key] = content;
+      payload.checksums[key] = createHash("sha256").update(content).digest("hex");
     } else {
       payload.files[key] = null;
+      payload.checksums[key] = "";
     }
   }
   const fullPath = path.join(backupsDir, file);
@@ -351,8 +674,8 @@ function listDataBackups(limit = 10) {
 }
 
 function restoreDataBackup(file) {
-  const target = path.getFullPath(path.join(backupsDir, file));
-  const root = path.getFullPath(backupsDir);
+  const target = path.resolve(backupsDir, file);
+  const root = path.resolve(backupsDir);
   if (!target.startsWith(root)) throw new Error("Invalid backup path");
   if (!fs.existsSync(target)) throw new Error("Backup not found");
   const payload = JSON.parse(fs.readFileSync(target, "utf-8"));
@@ -366,6 +689,87 @@ function restoreDataBackup(file) {
     }
     fs.writeFileSync(filePath, String(content));
   }
+}
+
+function verifyBackupPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, message: "Backup payload is not an object." };
+  }
+  if (!payload.files || typeof payload.files !== "object") {
+    return { ok: false, message: "Backup payload is missing files map." };
+  }
+  for (const [key, filePath] of Object.entries(dataFiles)) {
+    const content = payload.files[key];
+    if (content === null || content === undefined) continue;
+    const text = String(content);
+    if (key === "audit") continue;
+    try {
+      JSON.parse(text);
+    } catch {
+      return { ok: false, message: `Backup file "${key}" is not valid JSON for ${filePath}.` };
+    }
+    if (payload.checksums && payload.checksums[key]) {
+      const digest = createHash("sha256").update(text).digest("hex");
+      if (digest !== payload.checksums[key]) {
+        return { ok: false, message: `Checksum mismatch for ${key}.` };
+      }
+    }
+  }
+  return { ok: true, message: "Backup payload verified." };
+}
+
+function verifyBackupFile(file) {
+  const target = path.resolve(backupsDir, file);
+  const root = path.resolve(backupsDir);
+  if (!target.startsWith(root)) return { ok: false, message: "Invalid backup path." };
+  if (!fs.existsSync(target)) return { ok: false, message: "Backup not found." };
+  const payload = JSON.parse(fs.readFileSync(target, "utf-8"));
+  return verifyBackupPayload(payload);
+}
+
+function isoWeekKey(date) {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+function applyBackupRetention() {
+  if (!fs.existsSync(backupsDir)) return { deleted: [], kept: [] };
+  const files = fs.readdirSync(backupsDir).filter((f) => f.endsWith(".json")).map((file) => {
+    const full = path.join(backupsDir, file);
+    const st = fs.statSync(full);
+    return { file, mtimeMs: st.mtimeMs };
+  }).sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  const keep = new Set();
+  const daily = new Set();
+  const weekly = new Set();
+  for (const row of files) {
+    const date = new Date(row.mtimeMs);
+    const dayKey = date.toISOString().slice(0, 10);
+    const weekKey = isoWeekKey(date);
+
+    if (daily.size < backupRetentionDaily && !daily.has(dayKey)) {
+      daily.add(dayKey);
+      keep.add(row.file);
+      continue;
+    }
+    if (weekly.size < backupRetentionWeekly && !weekly.has(weekKey)) {
+      weekly.add(weekKey);
+      keep.add(row.file);
+    }
+  }
+
+  const deleted = [];
+  for (const row of files) {
+    if (keep.has(row.file)) continue;
+    const full = path.join(backupsDir, row.file);
+    fs.unlinkSync(full);
+    deleted.push(row.file);
+  }
+  return { deleted, kept: Array.from(keep) };
 }
 
 function bumpMetric(name, commandName) {
