@@ -60,6 +60,7 @@ const autoActivityMinutes = parsePositiveMinutes(process.env.AUTO_ACTIVITY_MINUT
 const autoUpdatesMinutes = parsePositiveMinutes(process.env.AUTO_UPDATES_MINUTES, 30, "AUTO_UPDATES_MINUTES");
 const autoTransmissionsMinutes = parsePositiveMinutes(process.env.AUTO_TRANSMISSIONS_MINUTES, 30, "AUTO_TRANSMISSIONS_MINUTES");
 const autoModsMinutes = parsePositiveMinutes(process.env.AUTO_MODS_MINUTES, 60, "AUTO_MODS_MINUTES");
+const autoDiscordAutomationMinutes = parsePositiveMinutes(process.env.AUTO_DISCORD_AUTOMATION_MINUTES, 1, "AUTO_DISCORD_AUTOMATION_MINUTES");
 const siteUrl = process.env.SITE_URL || apiBase || "https://greyhourrp.xyz";
 const botActivity = process.env.BOT_ACTIVITY_TEXT || "Grey Hour RP | /help";
 const deployTag = process.env.BOT_DEPLOY_TAG || process.env.RELEASE_VERSION || "dev";
@@ -245,6 +246,70 @@ const ANNOUNCE_PRESETS = {
   incident: "Staff is actively handling an in-game incident. Please avoid speculation while we investigate.",
   resolved: "The earlier incident has been resolved. Thank you for your patience."
 };
+
+const HELP_CATALOG = [
+  { syntax: "/ping", desc: "Check bot latency.", staffOnly: false },
+  { syntax: "/help", desc: "Show commands you can use based on your roles.", staffOnly: false },
+  { syntax: "/status", desc: "Show current server status.", staffOnly: false },
+  { syntax: "/statushistory", desc: "Show recent status history.", staffOnly: false },
+  { syntax: "/updates", desc: "Show the latest server update.", staffOnly: false },
+  { syntax: "/transmissions", desc: "Show latest transmission/lore post.", staffOnly: false },
+  { syntax: "/mods", desc: "Show modpack info.", staffOnly: false },
+  { syntax: "/rules", desc: "Get the rules link.", staffOnly: false },
+  { syntax: "/join", desc: "Get join instructions.", staffOnly: false },
+  { syntax: "/links", desc: "Show key Grey Hour RP links.", staffOnly: false },
+  { syntax: "/lore", desc: "Show lore primer.", staffOnly: false },
+  { syntax: "/whois", desc: "Show member profile details.", staffOnly: false },
+  { syntax: "/playercount", desc: "Show live player count.", staffOnly: false },
+  { syntax: "/serverip", desc: "Show server connection details.", staffOnly: false },
+  { syntax: "/staff", desc: "Show owner/admin/mod staff directory.", staffOnly: false },
+  { syntax: "/ticket create", desc: "Open a private support ticket channel.", staffOnly: false },
+  { syntax: "/lfg", desc: "Create/manage looking-for-group posts.", staffOnly: false },
+  { syntax: "/faction", desc: "Faction and roster tools.", staffOnly: false },
+  { syntax: "/trade", desc: "Create/manage trade listings.", staffOnly: false },
+  { syntax: "/contest", desc: "Start/manage contests.", staffOnly: false },
+  { syntax: "/raid", desc: "Create/manage raid events.", staffOnly: false },
+  { syntax: "/signup", desc: "Join/leave event signups.", staffOnly: false },
+  { syntax: "/mapmark", desc: "Save and view map markers.", staffOnly: false },
+  { syntax: "/safehouse", desc: "Request/review safehouse claims.", staffOnly: false },
+  { syntax: "/commend", desc: "Commend helpful members.", staffOnly: false },
+  { syntax: "/leaderboard", desc: "Show community leaderboard.", staffOnly: false },
+  { syntax: "/squadvc", desc: "Create/close squad voice channels.", staffOnly: false },
+  { syntax: "/survivor", desc: "Get survivor tips/challenges.", staffOnly: false },
+  { syntax: "/pz", desc: "Project Zomboid quick tips.", staffOnly: false },
+  { syntax: "/optin", desc: "Toggle alert roles.", staffOnly: false },
+  { syntax: "/modcall", desc: "Run moderator call workflow.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/case assign-next", desc: "Auto-assign next open case to least-busy on-shift mod.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/mod", desc: "Set shift status and view moderation metrics.", staffOnly: true, policyKey: "mod" },
+  { syntax: "/incident", desc: "Create/list/resolve/link moderation incidents.", staffOnly: true, policyKey: "incident" },
+  { syntax: "/audit", desc: "View/export command audit logs.", staffOnly: true, policyKey: "audit" },
+  { syntax: "/backup", desc: "Create/list/restore bot data backups.", staffOnly: true, policyKey: "backup" },
+  { syntax: "/ops", desc: "Operations status, maintenance, safemode, inventory.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/rolesync", desc: "Preview/validate role-sync rules.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/permissions audit", desc: "Check missing bot permissions in key channels.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/staffpanel", desc: "Open one-click staff action panel.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/staffquickstart", desc: "Post and pin staff quickstart guide.", staffOnly: true, policyKey: "ops" },
+  { syntax: "/playbook", desc: "Show moderation SOP playbooks.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/handoff", desc: "Generate shift handoff summary.", staffOnly: true, policyKey: "mod" },
+  { syntax: "/staffstats", desc: "Show moderator performance stats.", staffOnly: true, policyKey: "mod" },
+  { syntax: "/knowledge", desc: "Search rules/playbooks/FAQ knowledge snippets.", staffOnly: true, policyKey: "modcall" },
+  { syntax: "/admin", desc: "Admin control plane actions and approvals.", staffOnly: true, policyKey: "admin" },
+  { syntax: "/announce", desc: "Post custom or preset announcements.", staffOnly: true, policyKey: "announce" },
+  { syntax: "/announcepreset", desc: "Send preset announcement template.", staffOnly: true, policyKey: "announce" },
+  { syntax: "/health", desc: "Run bot health checks.", staffOnly: true, policyKey: "health" },
+  { syntax: "/metrics", desc: "Show runtime metrics summary.", staffOnly: true, policyKey: "metrics" },
+  { syntax: "/poll", desc: "Create quick reaction poll.", staffOnly: true, policyKey: "poll" },
+  { syntax: "/event", desc: "Create/list/announce/end events.", staffOnly: true, policyKey: "event" },
+  { syntax: "/ticket close", desc: "Close ticket thread/channel.", staffOnly: true },
+  { syntax: "/onboard", desc: "Post onboarding panel.", staffOnly: true, policyKey: "onboard" },
+  { syntax: "/raidmode", desc: "Toggle raid mode protections.", staffOnly: true, policyKey: "raidmode" },
+  { syntax: "/reminder", desc: "Manage scheduled reminders.", staffOnly: true, policyKey: "reminder" },
+  { syntax: "/activity", desc: "Show recent admin activity.", staffOnly: true, policyKey: "activity" },
+  { syntax: "/purge", desc: "Bulk-delete recent messages.", staffOnly: true, policyKey: "purge" },
+  { syntax: "/slowmode", desc: "Set channel slowmode.", staffOnly: true, policyKey: "slowmode" },
+  { syntax: "/lock", desc: "Lock channel for @everyone.", staffOnly: true, policyKey: "lock" },
+  { syntax: "/unlock", desc: "Unlock channel for @everyone.", staffOnly: true, policyKey: "unlock" }
+];
 
 function loadState() {
   try {
@@ -1631,7 +1696,7 @@ async function runPermissionAudit(guild) {
 async function runStartupDiagnostics() {
   console.log("[diag] Starting startup diagnostics...");
   console.log(`[diag] Deploy tag: ${deployTag} | mode=${dryRunMode ? "dry-run" : (stagingMode ? "staging" : "live")}`);
-  console.log(`[diag] Scheduler minutes: status=${autoStatusMinutes}, updates=${autoUpdatesMinutes}, transmissions=${autoTransmissionsMinutes}, mods=${autoModsMinutes}, activity=${autoActivityMinutes}`);
+  console.log(`[diag] Scheduler minutes: status=${autoStatusMinutes}, updates=${autoUpdatesMinutes}, transmissions=${autoTransmissionsMinutes}, mods=${autoModsMinutes}, activity=${autoActivityMinutes}, automation=${autoDiscordAutomationMinutes}`);
   console.log(`[diag] Role gates: allowedRoleIds=${allowedRoleIds.length}, ownerRoleIds=${ownerRoleIds.length}`);
   console.log(`[diag] Admin auth header: basic-auth=${getAdminAuthHeader() ? "set" : "missing"}`);
 
@@ -2254,22 +2319,36 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "help") {
+      const member = interaction.inGuild() && interaction.guild
+        ? await interaction.guild.members.fetch(interaction.user.id).catch(() => null)
+        : null;
+      const staffContext = Boolean(member && isStaffMember(interaction, member));
+      const canSee = (entry) => {
+        if (!entry.staffOnly) return true;
+        if (!staffContext || !member) return false;
+        if (!entry.policyKey) return true;
+        return hasPolicyAccess(member, entry.policyKey);
+      };
+      const publicLines = HELP_CATALOG
+        .filter((x) => !x.staffOnly)
+        .map((x) => `\`${x.syntax}\` - ${x.desc}`);
+      const staffLines = HELP_CATALOG
+        .filter((x) => x.staffOnly && canSee(x))
+        .map((x) => `\`${x.syntax}\` - ${x.desc}`);
+
       await interaction.reply({
         content: [
-          "Grey Hour RP Bot Commands:",
-          "/lfg, /faction, /trade, /contest",
-          "/raid, /signup, /mapmark, /safehouse",
-          "/commend, /leaderboard, /optin, /onboard, /raidmode",
-          "/squadvc, /survivor, /pz",
-          "/whois, /playercount, /serverip, /staff",
-          "/status, /statushistory",
-          "/updates, /transmissions, /mods",
-          "/rules, /join, /links, /lore, /moddiff",
-          "/poll, /event, /ticket",
-          "/purge, /slowmode, /lock, /unlock",
-          "/audit, /incident, /backup, /ops, /rolesync, /case, /modcall, /mod, /admin",
-          "/staffpanel, /playbook, /handoff, /permissions, /staffstats, /announcepreset, /knowledge",
-          "/health, /metrics, /announce, /reminder, /activity, /roll"
+          "Grey Hour RP Bot Help",
+          "",
+          "**Public Commands You Can Use**",
+          truncate(publicLines.join("\n"), 1200),
+          ...(staffContext ? [
+            "",
+            "**Staff Commands You Can Use**",
+            staffLines.length ? truncate(staffLines.join("\n"), 1200) : "No staff commands available for your current role policy."
+          ] : []),
+          "",
+          "Tip: command visibility is role/policy aware."
         ].join("\n"),
         ephemeral: true
       });
@@ -4963,6 +5042,147 @@ async function runDailySummary() {
   saveState(state);
 }
 
+function normalizeAutomationConfig(raw) {
+  return {
+    enabled: Boolean(raw?.enabled),
+    quietHoursStartUtc: Number(raw?.quietHoursStartUtc ?? 0),
+    quietHoursEndUtc: Number(raw?.quietHoursEndUtc ?? 0),
+    rotatingTemplates: Array.isArray(raw?.rotatingTemplates) ? raw.rotatingTemplates : [],
+    schedules: Array.isArray(raw?.schedules) ? raw.schedules : [],
+    campaigns: Array.isArray(raw?.campaigns) ? raw.campaigns : []
+  };
+}
+
+function isInQuietHours(now, startUtc, endUtc) {
+  const start = Math.max(0, Math.min(23, Number(startUtc || 0)));
+  const end = Math.max(0, Math.min(23, Number(endUtc || 0)));
+  if (start === end) return false;
+  const hour = now.getUTCHours();
+  if (start < end) return hour >= start && hour < end;
+  return hour >= start || hour < end;
+}
+
+function scheduleMatchesNow(schedule, now) {
+  if (!schedule || schedule.enabled === false) return false;
+  const rawTime = String(schedule.timeUtc || "").trim();
+  const m = rawTime.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!m) return false;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (now.getUTCHours() !== hh || now.getUTCMinutes() !== mm) return false;
+
+  const dayMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const today = dayMap[now.getUTCDay()];
+  const days = Array.isArray(schedule.days) ? schedule.days : [];
+  if (days.length === 0) return true;
+  return days.includes(today);
+}
+
+function campaignSlotKey(cadence, now) {
+  const c = String(cadence || "").trim().toLowerCase();
+  if (c === "hourly") return `${now.toISOString().slice(0, 13)}`;
+  if (c === "weekly") return isoWeekKey(now);
+  if (c === "monthly") return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  return now.toISOString().slice(0, 10);
+}
+
+function campaignMatchesNow(campaign, now) {
+  if (!campaign || campaign.enabled === false) return false;
+  const c = String(campaign.cadence || "").trim().toLowerCase();
+  if (c === "weekly") return now.getUTCDay() === 1 && now.getUTCHours() === 18 && now.getUTCMinutes() === 0;
+  if (c === "monthly") return now.getUTCDate() === 1 && now.getUTCHours() === 18 && now.getUTCMinutes() === 0;
+  if (c === "hourly") return now.getUTCMinutes() === 0;
+  if (c === "weekdays") {
+    const d = now.getUTCDay();
+    return d >= 1 && d <= 5 && now.getUTCHours() === 18 && now.getUTCMinutes() === 0;
+  }
+  return now.getUTCHours() === 18 && now.getUTCMinutes() === 0;
+}
+
+function getTemplateMessage(config, templateId) {
+  if (!templateId) return "";
+  const templates = Array.isArray(config.rotatingTemplates) ? config.rotatingTemplates : [];
+  const found = templates.find((t) => t.id === templateId && t.enabled !== false);
+  if (!found) return "";
+  return String(found.message || "").trim();
+}
+
+function markAutomationSent(state, key) {
+  const map = state.automationSent && typeof state.automationSent === "object" ? state.automationSent : {};
+  map[key] = Date.now();
+
+  const cutoff = Date.now() - (45 * 24 * 60 * 60 * 1000);
+  for (const [k, ts] of Object.entries(map)) {
+    if (Number(ts) < cutoff) delete map[k];
+  }
+  state.automationSent = map;
+}
+
+function automationAlreadySent(state, key) {
+  const map = state.automationSent && typeof state.automationSent === "object" ? state.automationSent : {};
+  return Boolean(map[key]);
+}
+
+async function runDiscordAutomation() {
+  if (!announceChannelId) return;
+  bumpMetric("schedulerRun");
+
+  const raw = await adminFetch("/api/admin/content/discord-automation", { reqId: "scheduler-discord-automation" });
+  const config = normalizeAutomationConfig(raw);
+  if (!config.enabled) return;
+
+  const now = new Date();
+  if (isInQuietHours(now, config.quietHoursStartUtc, config.quietHoursEndUtc)) return;
+
+  const state = loadState();
+
+  for (const schedule of config.schedules) {
+    if (!scheduleMatchesNow(schedule, now)) continue;
+    const slot = `${schedule.id}:${now.toISOString().slice(0, 10)}:${String(schedule.timeUtc || "").trim()}`;
+    const key = `automation:schedule:${slot}`;
+    if (automationAlreadySent(state, key)) continue;
+
+    const fromTemplate = getTemplateMessage(config, schedule.templateId);
+    const body = String(fromTemplate || schedule.message || "").trim();
+    if (!body) continue;
+    const content = schedule.mentionEveryone ? `@everyone\n${body}` : body;
+
+    enqueueJob({
+      type: "automation-schedule",
+      channelId: announceChannelId,
+      idempotencyKey: key,
+      content,
+      maxRetries: 6
+    });
+    markAutomationSent(state, key);
+  }
+
+  for (const campaign of config.campaigns) {
+    if (!campaignMatchesNow(campaign, now)) continue;
+    const slot = campaignSlotKey(campaign.cadence, now);
+    const key = `automation:campaign:${campaign.id}:${slot}`;
+    if (automationAlreadySent(state, key)) continue;
+
+    const parts = [
+      String(campaign.message || "").trim(),
+      campaign.callToAction ? `\n${String(campaign.callToAction).trim()}` : ""
+    ].filter(Boolean);
+    const content = parts.join("\n").trim();
+    if (!content) continue;
+
+    enqueueJob({
+      type: "automation-campaign",
+      channelId: announceChannelId,
+      idempotencyKey: key,
+      content,
+      maxRetries: 6
+    });
+    markAutomationSent(state, key);
+  }
+
+  saveState(state);
+}
+
 async function runCommunityMaintenance() {
   bumpMetric("schedulerRun");
   const community = loadCommunity();
@@ -5226,6 +5446,7 @@ function startSchedulers() {
   safeScheduler(postLatestTransmission);
   safeScheduler(postModsChange);
   safeScheduler(postActivityLog);
+  safeScheduler(runDiscordAutomation);
   safeScheduler(runModCallEscalations);
   safeScheduler(runOpsWatchdog);
 
@@ -5234,6 +5455,7 @@ function startSchedulers() {
   setInterval(() => safeScheduler(postLatestTransmission), intervalMs(autoTransmissionsMinutes));
   setInterval(() => safeScheduler(postModsChange), intervalMs(autoModsMinutes));
   setInterval(() => safeScheduler(postActivityLog), intervalMs(autoActivityMinutes));
+  setInterval(() => safeScheduler(runDiscordAutomation), intervalMs(autoDiscordAutomationMinutes));
   setInterval(() => safeScheduler(runReminders), 60 * 1000);
   setInterval(() => safeScheduler(runDailyReminder), 60 * 1000);
   setInterval(() => safeScheduler(runDailySummary), 60 * 1000);
