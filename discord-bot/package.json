@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node index.js",
     "register": "node register-commands.js",
-    "smoke": "bash scripts/smoke-check.sh"
+    "smoke": "bash scripts/smoke-check.sh",
+    "bootstrap:prod": "bash scripts/production-bootstrap.sh"
   },
   "dependencies": {
     "discord.js": "^14.17.3",

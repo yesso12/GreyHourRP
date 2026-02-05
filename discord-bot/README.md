@@ -35,6 +35,19 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
    - `npm start`
 6. Run smoke check:
    - `npm run smoke`
+7. One-command production bootstrap (register + restart + smoke-check):
+   - `npm run bootstrap:prod`
+
+## Production Bootstrap
+- Command: `npm run bootstrap:prod`
+- What it does:
+  - Registers slash commands.
+  - Ensures `greyhourrp-discord-bot` service is enabled (safe on re-run).
+  - Restarts the service and waits until it is active.
+  - Runs smoke-check against the Admin API + service health.
+- Optional env vars:
+  - `SERVICE_NAME` (default `greyhourrp-discord-bot`)
+  - `RESTART_TIMEOUT_SECONDS` (default `30`)
 
 ## Required env vars
 - `DISCORD_TOKEN`
