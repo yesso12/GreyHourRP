@@ -8,19 +8,24 @@ export function Section(props: {
 }) {
   return (
     <motion.section
+      className="section-frame"
       initial={{ opacity: 0, y: 18 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: '-80px' }}
       transition={{ duration: 0.5, ease: 'easeOut' }}
-      style={{ padding: '38px 0' }}
     >
-      <div className="container">
+      <div className="container section-inner">
+        <div className="section-head">
+          <div className="section-rule" aria-hidden="true" />
+          <div className="section-heading-block">
         {props.eyebrow ? (
-          <div className="badge" style={{ marginBottom: 14 }}>
+              <div className="badge section-badge">
             <span style={{ color: 'var(--accent2)' }}>{props.eyebrow}</span>
           </div>
         ) : null}
-        <h2 className="h2" style={{ marginBottom: 10 }}>{props.title}</h2>
+            <h2 className="h2 section-title">{props.title}</h2>
+          </div>
+        </div>
         {props.children}
       </div>
     </motion.section>
