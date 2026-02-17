@@ -1,0 +1,14 @@
+[Unit]
+Description=GreyHourRP content and bot-data backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=CONTENT_ROOT=/var/www/greyhourrp/content
+Environment=BOT_DATA_ROOT=/opt/greyhourrp-discord-bot/data
+Environment=BACKUP_ROOT=/var/backups/greyhourrp
+Environment=RETENTION_DAYS=14
+EnvironmentFile=-/etc/default/greyhourrp-automation
+WorkingDirectory=/opt/greyhourrp
+ExecStart=/opt/greyhourrp/scripts/backup-content.sh

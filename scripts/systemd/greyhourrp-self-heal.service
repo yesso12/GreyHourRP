@@ -1,0 +1,13 @@
+[Unit]
+Description=GreyHourRP automated self-heal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=STATIC_TARGET=/var/www/greyhourrp
+Environment=BOT_APP_DIR=/opt/greyhourrp-discord-bot
+Environment=BOT_SERVICE=greyhourrp-discord-bot
+EnvironmentFile=-/etc/default/greyhourrp-automation
+WorkingDirectory=/opt/greyhourrp
+ExecStart=/opt/greyhourrp/scripts/self-heal.sh ${STATIC_TARGET}
