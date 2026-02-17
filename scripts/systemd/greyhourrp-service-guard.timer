@@ -1,0 +1,12 @@
+[Unit]
+Description=Run GreyHourRP service guard every 2 minutes
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+OnUnitActiveSec=2min
+Persistent=true
+RandomizedDelaySec=20
+Unit=greyhourrp-service-guard.service
+
+[Install]
+WantedBy=timers.target

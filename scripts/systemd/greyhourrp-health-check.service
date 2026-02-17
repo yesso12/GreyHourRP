@@ -7,4 +7,4 @@ Wants=network-online.target
 Type=oneshot
 EnvironmentFile=-/etc/default/greyhourrp-automation
 WorkingDirectory=/opt/greyhourrp
-ExecStart=/opt/greyhourrp/scripts/health-check-all.sh
+ExecStart=/bin/bash -c '/opt/greyhourrp/scripts/systemd/run-with-alert.sh health-check /opt/greyhourrp/scripts/health-check-all.sh'

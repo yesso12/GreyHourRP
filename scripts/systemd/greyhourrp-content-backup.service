@@ -11,4 +11,4 @@ Environment=BACKUP_ROOT=/var/backups/greyhourrp
 Environment=RETENTION_DAYS=14
 EnvironmentFile=-/etc/default/greyhourrp-automation
 WorkingDirectory=/opt/greyhourrp
-ExecStart=/opt/greyhourrp/scripts/backup-content.sh
+ExecStart=/bin/bash -c '/opt/greyhourrp/scripts/systemd/run-with-alert.sh content-backup /opt/greyhourrp/scripts/backup-content.sh'

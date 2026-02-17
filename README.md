@@ -118,12 +118,18 @@ sudo certbot --nginx -d YOUR_DOMAIN_HERE
 ## Enterprise Ops
 - CI workflow: `.github/workflows/ci.yml`
 - Security workflow: `.github/workflows/security.yml`
+- Secrets scan workflow: `.github/workflows/secrets-scan.yml`
 - Deploy workflow: `.github/workflows/deploy-static.yml`
+- Synthetic monitoring workflow: `.github/workflows/synthetic-monitor.yml`
 - Static deploy script: `scripts/deploy-static.sh`
 - Static rollback script: `scripts/rollback-static.sh`
 - Host automation installer: `scripts/systemd/install-host-automation.sh`
   - Installs systemd timers/services for self-heal and health checks.
   - Optional daily backup timer (off by default, enable with `ENABLE_BACKUP_TIMER=true`).
+  - Optional weekly restore-drill timer (off by default, enable with `ENABLE_RESTORE_DRILL_TIMER=true`).
+  - Optional monthly secrets-rotation timer (off by default, enable with `ENABLE_SECRET_ROTATION_TIMER=true`).
+  - Service-guard timer (on by default, disable with `ENABLE_SERVICE_GUARD_TIMER=false`).
+  - Integrity-check timer (on by default, disable with `ENABLE_INTEGRITY_TIMER=false`).
 
 Install timers on host:
 ```bash
@@ -137,13 +143,57 @@ cd /opt/greyhourrp
 sudo ENABLE_BACKUP_TIMER=true bash scripts/systemd/install-host-automation.sh
 ```
 
+Enable backup + restore-drill timers:
+```bash
+cd /opt/greyhourrp
+sudo ENABLE_BACKUP_TIMER=true ENABLE_RESTORE_DRILL_TIMER=true bash scripts/systemd/install-host-automation.sh
+```
+
+Enable all timers (backup + restore drill + secrets rotation):
+```bash
+cd /opt/greyhourrp
+sudo ENABLE_BACKUP_TIMER=true ENABLE_RESTORE_DRILL_TIMER=true ENABLE_SECRET_ROTATION_TIMER=true ENABLE_SERVICE_GUARD_TIMER=true ENABLE_INTEGRITY_TIMER=true bash scripts/systemd/install-host-automation.sh
+```
+
 Automation env overrides:
 - Example file: `scripts/systemd/greyhourrp-automation.env.example`
 - Host location: `/etc/default/greyhourrp-automation`
+- Set `AUTOMATION_ALERT_WEBHOOK_URL` to receive success/failure timer summaries (with recent log tail).
+- Webhook circuit-breaker controls:
+  - `AUTOMATION_ALERT_WEBHOOK_DISABLE_AFTER_FAILS=3`
+  - `AUTOMATION_ALERT_WEBHOOK_DISABLE_SECONDS=3600`
+  - `AUTOMATION_ALERT_WEBHOOK_PROBE_INTERVAL_SECONDS=300`
+  - `AUTOMATION_ALERT_STATE_DIR=/var/lib/greyhourrp-automation-alerts`
+- If webhook fails/unavailable, alerting can fallback to Discord Bot API using:
+  - `AUTOMATION_ALERT_CHANNEL_ID` (or channel from `AUTOMATION_ALERT_CHANNEL_KEY`)
+  - `AUTOMATION_DISCORD_TOKEN` or `AUTOMATION_DISCORD_TOKEN_FILE`
 - If the Discord bot is hosted elsewhere, set:
   - `SELF_HEAL_DEPLOY_BOT=false`
   - `CHECK_DISCORD_BOT_SERVICE=false`
   - `RUN_BOT_SMOKE_CHECK=false`
+- Restore drill settings:
+  - `RESTORE_DRILL_ROOT=/tmp/greyhourrp-restore-drill`
+  - `RESTORE_DRILL_KEEP_LATEST=3`
+- Secrets rotation settings:
+  - `ADMIN_API_ENV_PATH=/etc/greyhourrp-admin-api.env`
+  - `BOT_ENV_PATHS=/opt/greyhourrp/discord-bot/.env:/opt/greyhourrp-discord-bot/.env`
+  - `SECRET_ROTATE_MIN_LENGTH=40`
+  - `SECRET_ROTATE_DRY_RUN=false`
+- Service guard settings:
+  - `WATCH_SERVICES="greyhourrp-admin-api greyhourrp-discord-bot"`
+  - `RESTART_COOLDOWN_SECONDS=300`
+  - `SERVICE_GUARD_STATE_DIR=/var/lib/greyhourrp-service-guard`
+- Integrity settings:
+  - `QUARANTINE_ROOT=/var/backups/greyhourrp/quarantine`
+  - `ENABLE_AUTO_RESTORE_ON_CORRUPTION=true`
+  - `CONTENT_SCAN_MAXDEPTH=1`
+
+Synthetic monitor secrets (GitHub Actions):
+- `PUBLIC_BASE_URL` (optional; defaults to `https://greyhourrp.xyz`)
+- `ADMIN_API_BASE` (optional; defaults to `PUBLIC_BASE_URL`)
+- `ADMIN_BASIC_AUTH_HEADER` or `ADMIN_BASIC_AUTH_USER` + `ADMIN_BASIC_AUTH_PASS` (optional admin checks)
+- `BOT_METRICS_URL` (optional bot metrics endpoint check)
+- `SYNTHETIC_ALERT_WEBHOOK_URL` (optional failure alert destination)
 
 ## Game Ops
 - Host operations guide: `docs/ops/host-ops.md`

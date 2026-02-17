@@ -10,4 +10,4 @@ Environment=BOT_APP_DIR=/opt/greyhourrp-discord-bot
 Environment=BOT_SERVICE=greyhourrp-discord-bot
 EnvironmentFile=-/etc/default/greyhourrp-automation
 WorkingDirectory=/opt/greyhourrp
-ExecStart=/opt/greyhourrp/scripts/self-heal.sh ${STATIC_TARGET}
+ExecStart=/bin/bash -c '/opt/greyhourrp/scripts/systemd/run-with-alert.sh self-heal /opt/greyhourrp/scripts/self-heal.sh "${STATIC_TARGET}"'

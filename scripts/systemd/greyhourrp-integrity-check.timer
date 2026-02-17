@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GreyHourRP integrity check every 10 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/10:00
+Persistent=true
+RandomizedDelaySec=30
+Unit=greyhourrp-integrity-check.service
+
+[Install]
+WantedBy=timers.target

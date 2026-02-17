@@ -1,0 +1,9 @@
+[Unit]
+Description=GreyHourRP Service Guard (auto-restart critical services)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/greyhourrp-automation
+ExecStart=/opt/greyhourrp/scripts/systemd/run-with-alert.sh service-guard /opt/greyhourrp/scripts/systemd/service-guard.sh

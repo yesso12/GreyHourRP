@@ -1,0 +1,10 @@
+[Unit]
+Description=GreyHourRP content/data integrity check with auto-heal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/greyhourrp-automation
+WorkingDirectory=/opt/greyhourrp
+ExecStart=/opt/greyhourrp/scripts/systemd/run-with-alert.sh integrity-check /opt/greyhourrp/scripts/integrity-check.sh

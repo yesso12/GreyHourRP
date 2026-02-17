@@ -1,0 +1,13 @@
+[Unit]
+Description=GreyHourRP backup restore drill
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=BACKUP_ROOT=/var/backups/greyhourrp
+Environment=RESTORE_DRILL_ROOT=/tmp/greyhourrp-restore-drill
+Environment=RESTORE_DRILL_KEEP_LATEST=3
+EnvironmentFile=-/etc/default/greyhourrp-automation
+WorkingDirectory=/opt/greyhourrp
+ExecStart=/bin/bash -c '/opt/greyhourrp/scripts/systemd/run-with-alert.sh restore-drill /opt/greyhourrp/scripts/restore-drill.sh'

@@ -25,6 +25,14 @@ Files:
 - `scripts/systemd/greyhourrp-health-check.timer`
 - `scripts/systemd/greyhourrp-content-backup.service`
 - `scripts/systemd/greyhourrp-content-backup.timer`
+- `scripts/systemd/greyhourrp-restore-drill.service`
+- `scripts/systemd/greyhourrp-restore-drill.timer`
+- `scripts/systemd/greyhourrp-rotate-secrets.service`
+- `scripts/systemd/greyhourrp-rotate-secrets.timer`
+- `scripts/systemd/greyhourrp-service-guard.service`
+- `scripts/systemd/greyhourrp-service-guard.timer`
+- `scripts/systemd/greyhourrp-integrity-check.service`
+- `scripts/systemd/greyhourrp-integrity-check.timer`
 - Installer: `scripts/systemd/install-host-automation.sh`
 
 Install:
@@ -39,9 +47,44 @@ cd /opt/greyhourrp
 sudo ENABLE_BACKUP_TIMER=true bash scripts/systemd/install-host-automation.sh
 ```
 
+Enable restore drill timer too:
+```bash
+cd /opt/greyhourrp
+sudo ENABLE_BACKUP_TIMER=true ENABLE_RESTORE_DRILL_TIMER=true bash scripts/systemd/install-host-automation.sh
+```
+
+Enable secrets rotation timer too:
+```bash
+cd /opt/greyhourrp
+sudo ENABLE_BACKUP_TIMER=true ENABLE_RESTORE_DRILL_TIMER=true ENABLE_SECRET_ROTATION_TIMER=true ENABLE_SERVICE_GUARD_TIMER=true ENABLE_INTEGRITY_TIMER=true bash scripts/systemd/install-host-automation.sh
+```
+
 Env overrides:
 - Copy `scripts/systemd/greyhourrp-automation.env.example`
 - Host path: `/etc/default/greyhourrp-automation`
+- Set `AUTOMATION_ALERT_WEBHOOK_URL` to enable Discord alerts for timer success/failure.
+- Webhook circuit-breaker controls:
+  - `AUTOMATION_ALERT_WEBHOOK_DISABLE_AFTER_FAILS=3`
+  - `AUTOMATION_ALERT_WEBHOOK_DISABLE_SECONDS=3600`
+  - `AUTOMATION_ALERT_WEBHOOK_PROBE_INTERVAL_SECONDS=300`
+  - `AUTOMATION_ALERT_STATE_DIR=/var/lib/greyhourrp-automation-alerts`
+- Optional fallback if webhook is invalid:
+  - `AUTOMATION_ALERT_CHANNEL_ID=<channel-id>`
+  - `AUTOMATION_DISCORD_TOKEN=<bot-token>` or `AUTOMATION_DISCORD_TOKEN_FILE=/opt/greyhourrp-discord-bot/.env`
+  - `AUTOMATION_ALERT_CHANNEL_KEY=LOG_CHANNEL_ID` (or other channel key in token file)
+- Secrets rotation config:
+  - `ADMIN_API_ENV_PATH=/etc/greyhourrp-admin-api.env`
+  - `BOT_ENV_PATHS=/opt/greyhourrp/discord-bot/.env:/opt/greyhourrp-discord-bot/.env`
+  - `SECRET_ROTATE_MIN_LENGTH=40`
+  - `SECRET_ROTATE_DRY_RUN=false`
+- Service guard config:
+  - `WATCH_SERVICES=\"greyhourrp-admin-api greyhourrp-discord-bot\"`
+  - `RESTART_COOLDOWN_SECONDS=300`
+  - `SERVICE_GUARD_STATE_DIR=/var/lib/greyhourrp-service-guard`
+- Integrity config:
+  - `QUARANTINE_ROOT=/var/backups/greyhourrp/quarantine`
+  - `ENABLE_AUTO_RESTORE_ON_CORRUPTION=true`
+  - `CONTENT_SCAN_MAXDEPTH=1`
 - If Discord bot automation should be disabled on this host:
   - `SELF_HEAL_DEPLOY_BOT=false`
   - `CHECK_DISCORD_BOT_SERVICE=false`

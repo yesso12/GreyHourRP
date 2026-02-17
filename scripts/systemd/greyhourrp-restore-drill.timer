@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GreyHourRP restore drill weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:15:00
+Persistent=true
+RandomizedDelaySec=120
+Unit=greyhourrp-restore-drill.service
+
+[Install]
+WantedBy=timers.target
