@@ -7,10 +7,6 @@
     <script>
       (function () {
         var path = window.location.pathname || '/';
-        if (path === '/admin' || path === '/admin/' || path.indexOf('/admin/') === 0) {
-          window.location.replace('https://frenzynets.com/admin/');
-          return;
-        }
         var query = window.location.search || '';
         var hash = window.location.hash || '';
         var encoded = encodeURIComponent(path + query + hash);

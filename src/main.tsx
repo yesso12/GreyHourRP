@@ -11,12 +11,8 @@ const params = new URLSearchParams(window.location.search)
 const redirectedPath = params.get('p')
 if (redirectedPath) {
   const cleanPath = redirectedPath.startsWith('/') ? redirectedPath : `/${redirectedPath}`
-  if (cleanPath === '/admin' || cleanPath.startsWith('/admin/')) {
-    window.location.replace('https://frenzynets.com/admin/')
-  } else {
-    const next = `${cleanPath}${window.location.hash || ''}`
-    window.history.replaceState(null, '', next)
-  }
+  const next = `${cleanPath}${window.location.hash || ''}`
+  window.history.replaceState(null, '', next)
 }
 
 const root = document.getElementById('root')
