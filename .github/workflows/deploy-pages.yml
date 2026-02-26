@@ -28,3 +28,4 @@ jobs:
           user_name: GreyHourRP Site Builder
           user_email: deploy@greyhourrp.com
           keep_files: false
+          cname: greyhourrp.xyz
