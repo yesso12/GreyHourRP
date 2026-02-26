@@ -39,7 +39,7 @@ export function Navbar(props: {
 
           <div className="nav-actions">
             <StatusBadge />
-            <a className="btn btn-ghost" href="/admin">
+            <a className="btn btn-ghost" href="/admin/index.html?v=ghrp-admin-20260226">
               Admin
             </a>
             <button
