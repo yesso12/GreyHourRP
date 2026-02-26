@@ -10,7 +10,7 @@
         var query = window.location.search || '';
         var hash = window.location.hash || '';
         var encoded = encodeURIComponent(path + query + hash);
-        window.location.replace('/?p=' + encoded);
+        window.location.replace('/?p=' + encoded + '&t=' + Date.now());
       })();
     </script>
   </head>
