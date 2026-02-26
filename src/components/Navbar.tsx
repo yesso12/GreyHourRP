@@ -39,6 +39,9 @@ export function Navbar(props: {
 
           <div className="nav-actions">
             <StatusBadge />
+            <a className="btn btn-ghost" href="/admin">
+              Admin
+            </a>
             <button
               className="btn btn-ghost"
               onClick={props.onToggleAudio}
