@@ -1,5 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { clearAdminKey, getAdminKey, me, ping, setAdminKey } from '../api/client'
+import {
+  clearAdminToken,
+  getAdminToken,
+  loginWithPassword,
+  logoutRequest,
+  me,
+  ping,
+  session,
+  setAdminToken
+} from '../api/client'
 
 export type AdminIdentity = {
   user: string | null
@@ -10,8 +19,8 @@ type AuthState = {
   checking: boolean
   loggedIn: boolean
   identity: AdminIdentity
-  login: (key: string) => Promise<boolean>
-  logout: () => void
+  login: (username: string, password: string) => Promise<boolean>
+  logout: () => void | Promise<void>
   canAccess: (section: string) => boolean
 }
 
@@ -30,38 +39,54 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     setIdentity({ user: info.user ?? null, role: info.role ?? null })
   }
 
-  async function validate(key: string) {
+  async function validate(token: string) {
     try {
-      setAdminKey(key)
+      setAdminToken(token)
+      await session()
       await ping()
       await refreshIdentity()
       return true
     } catch {
-      clearAdminKey()
+      clearAdminToken()
       return false
     }
   }
 
-  async function login(key: string) {
-    const ok = await validate(key)
-    setLoggedIn(ok)
-    return ok
+  async function login(username: string, password: string) {
+    try {
+      const auth = await loginWithPassword(username, password)
+      if (!auth?.token) {
+        setLoggedIn(false)
+        return false
+      }
+      const ok = await validate(auth.token)
+      setLoggedIn(ok)
+      return ok
+    } catch {
+      setLoggedIn(false)
+      return false
+    }
   }
 
-  function logout() {
-    clearAdminKey()
+  async function logout() {
+    try {
+      await logoutRequest()
+    } catch {
+      // Best effort; clear local token regardless.
+    }
+    clearAdminToken()
     setLoggedIn(false)
     setIdentity({ user: null, role: null })
   }
 
   useEffect(() => {
-    const key = getAdminKey()
-    if (!key) {
+    const token = getAdminToken()
+    if (!token) {
       setChecking(false)
       return
     }
 
-    validate(key)
+    validate(token)
       .then(ok => setLoggedIn(ok))
       .finally(() => setChecking(false))
   }, [])

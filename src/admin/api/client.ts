@@ -7,24 +7,24 @@ import type {
   ModItem
 } from '../../types/content'
 
-const BASE = import.meta.env.VITE_ADMIN_API_BASE ?? ''
-const KEY_STORAGE = 'ghrp_admin_key'
+const BASE = import.meta.env.VITE_ADMIN_API_BASE ?? 'https://api.frenzynets.com/api/ghrp'
+const TOKEN_STORAGE = 'ghrp_admin_token'
 
-export function getAdminKey() {
-  return sessionStorage.getItem(KEY_STORAGE)
+export function getAdminToken() {
+  return sessionStorage.getItem(TOKEN_STORAGE)
 }
 
-export function setAdminKey(key: string) {
-  sessionStorage.setItem(KEY_STORAGE, key)
+export function setAdminToken(token: string) {
+  sessionStorage.setItem(TOKEN_STORAGE, token)
 }
 
-export function clearAdminKey() {
-  sessionStorage.removeItem(KEY_STORAGE)
+export function clearAdminToken() {
+  sessionStorage.removeItem(TOKEN_STORAGE)
 }
 
 function adminHeaders(): HeadersInit {
-  const key = getAdminKey()
-  return key ? { 'X-Admin-Key': key } : {}
+  const token = getAdminToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -48,6 +48,33 @@ async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function ping() {
   return adminFetch<{ ok: boolean; timeUtc: string }>('/api/admin/ping')
+}
+
+export async function loginWithPassword(username: string, password: string) {
+  return adminFetch<{
+    token: string
+    expiresAt?: string
+    user?: { username?: string; role?: string }
+  }>('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  })
+}
+
+export async function session() {
+  return adminFetch<{
+    user: { username?: string; role?: string }
+    expiresAt?: string
+  }>('/api/auth/session')
+}
+
+export async function logoutRequest() {
+  return adminFetch<{ ok: boolean }>('/api/auth/logout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({})
+  })
 }
 
 export async function me() {

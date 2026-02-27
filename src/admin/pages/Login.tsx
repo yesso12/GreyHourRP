@@ -3,27 +3,28 @@ import { useNavigate } from 'react-router-dom'
 import { useAdminAuth } from '../auth/AdminAuthContext'
 
 export function AdminLogin() {
-  const [key, setKey] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const { login } = useAdminAuth()
   const navigate = useNavigate()
 
   async function submit() {
-    if (!key.trim()) {
-      setError('Admin key is required.')
+    if (!username.trim() || !password) {
+      setError('Username and password are required.')
       return
     }
 
     setBusy(true)
     setError('')
-    const ok = await login(key.trim())
+    const ok = await login(username.trim(), password)
     setBusy(false)
 
     if (ok) {
       navigate('/admin')
     } else {
-      setError('Invalid admin key or access not permitted.')
+      setError('Invalid credentials or access not permitted.')
     }
   }
 
@@ -33,13 +34,23 @@ export function AdminLogin() {
         <div className="admin-title">Grey Hour RP Admin</div>
         <div className="admin-sub">Secure access for staff and operators.</div>
 
-        <label className="admin-label">Admin API Key</label>
+        <label className="admin-label">Username</label>
+        <input
+          type="text"
+          className="admin-input"
+          placeholder="Enter admin username"
+          value={username}
+          onChange={e => setUsername(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && submit()}
+        />
+
+        <label className="admin-label">Password</label>
         <input
           type="password"
           className="admin-input"
-          placeholder="Paste your admin key"
-          value={key}
-          onChange={e => setKey(e.target.value)}
+          placeholder="Enter password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && submit()}
         />
 
@@ -50,7 +61,7 @@ export function AdminLogin() {
         </button>
 
         <div className="admin-hint">
-          This panel requires HTTP Basic access plus a valid API key.
+          This panel requires a valid staff username/password.
         </div>
       </div>
     </div>
