@@ -1,0 +1,2273 @@
+{
+  "generatedUtc": "2026-02-24T22:40:59.067Z",
+  "commands": [
+    {
+      "name": "ping",
+      "description": "Check bot latency",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/ping",
+      "subcommands": [],
+      "usageAll": [
+        "/ping"
+      ]
+    },
+    {
+      "name": "help",
+      "description": "Show bot commands",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/help",
+      "subcommands": [],
+      "usageAll": [
+        "/help"
+      ]
+    },
+    {
+      "name": "start",
+      "description": "Quick start guide with buttons",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/start",
+      "subcommands": [],
+      "usageAll": [
+        "/start"
+      ]
+    },
+    {
+      "name": "roleselect",
+      "description": "Pick alert roles with buttons",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/roleselect",
+      "subcommands": [],
+      "usageAll": [
+        "/roleselect"
+      ]
+    },
+    {
+      "name": "helpwizard",
+      "description": "Guided help topics and quick tips",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/helpwizard",
+      "subcommands": [],
+      "usageAll": [
+        "/helpwizard"
+      ]
+    },
+    {
+      "name": "faq",
+      "description": "Common answers for new survivors",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/faq",
+      "subcommands": [],
+      "usageAll": [
+        "/faq"
+      ]
+    },
+    {
+      "name": "bugreport",
+      "description": "Report a bug or issue to staff",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/bugreport",
+      "subcommands": [],
+      "usageAll": [
+        "/bugreport"
+      ]
+    },
+    {
+      "name": "directory",
+      "description": "Website and server directory links",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/directory",
+      "subcommands": [],
+      "usageAll": [
+        "/directory"
+      ]
+    },
+    {
+      "name": "prompt",
+      "description": "Get a roleplay prompt",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/prompt",
+      "subcommands": [],
+      "usageAll": [
+        "/prompt"
+      ]
+    },
+    {
+      "name": "ask",
+      "description": "Ask GreyHour Assistant a question",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/ask",
+      "subcommands": [],
+      "usageAll": [
+        "/ask"
+      ]
+    },
+    {
+      "name": "live",
+      "description": "Show live server + Discord snapshot",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/live",
+      "subcommands": [],
+      "usageAll": [
+        "/live"
+      ]
+    },
+    {
+      "name": "suggest",
+      "description": "Send a suggestion to staff",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/suggest",
+      "subcommands": [],
+      "usageAll": [
+        "/suggest"
+      ]
+    },
+    {
+      "name": "shop",
+      "description": "Shop and service requests",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/shop",
+      "subcommands": [
+        {
+          "name": "request",
+          "description": "Request a repair shop service",
+          "usage": "/shop request"
+        },
+        {
+          "name": "store",
+          "description": "Request a new in-game store/shop listing",
+          "usage": "/shop store"
+        }
+      ],
+      "usageAll": [
+        "/shop request",
+        "/shop store"
+      ]
+    },
+    {
+      "name": "dossier",
+      "description": "Character dossier submissions",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/dossier",
+      "subcommands": [
+        {
+          "name": "submit",
+          "description": "Submit a character dossier for review",
+          "usage": "/dossier submit"
+        },
+        {
+          "name": "list",
+          "description": "List approved dossiers",
+          "usage": "/dossier list"
+        }
+      ],
+      "usageAll": [
+        "/dossier submit",
+        "/dossier list"
+      ]
+    },
+    {
+      "name": "arc",
+      "description": "Seasonal story arcs",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/arc",
+      "subcommands": [
+        {
+          "name": "list",
+          "description": "Show current arcs",
+          "usage": "/arc list"
+        }
+      ],
+      "usageAll": [
+        "/arc list"
+      ]
+    },
+    {
+      "name": "events",
+      "description": "Event calendar",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/events",
+      "subcommands": [
+        {
+          "name": "list",
+          "description": "List upcoming events",
+          "usage": "/events list"
+        }
+      ],
+      "usageAll": [
+        "/events list"
+      ]
+    },
+    {
+      "name": "economy",
+      "description": "Economy snapshot",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/economy",
+      "subcommands": [
+        {
+          "name": "status",
+          "description": "Show the latest economy snapshot",
+          "usage": "/economy status"
+        }
+      ],
+      "usageAll": [
+        "/economy status"
+      ]
+    },
+    {
+      "name": "digest",
+      "description": "Post staff digests",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/digest",
+      "subcommands": [
+        {
+          "name": "content",
+          "description": "Post the staff content digest now",
+          "usage": "/digest content"
+        }
+      ],
+      "usageAll": [
+        "/digest content"
+      ]
+    },
+    {
+      "name": "ptero",
+      "description": "Pterodactyl control",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/ptero",
+      "subcommands": [
+        {
+          "name": "status",
+          "description": "Show server status from Pterodactyl Application API",
+          "usage": "/ptero status"
+        },
+        {
+          "name": "resources",
+          "description": "Show live resource usage from Pterodactyl Client API",
+          "usage": "/ptero resources"
+        },
+        {
+          "name": "power",
+          "description": "Send a power signal via Pterodactyl Client API",
+          "usage": "/ptero power"
+        },
+        {
+          "name": "console",
+          "description": "Stream live console output (read-only)",
+          "usage": "/ptero console"
+        }
+      ],
+      "usageAll": [
+        "/ptero status",
+        "/ptero resources",
+        "/ptero power",
+        "/ptero console"
+      ]
+    },
+    {
+      "name": "helpline",
+      "description": "Scripted help lines for staff and owners",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/helpline",
+      "subcommands": [
+        {
+          "name": "staff",
+          "description": "Staff ticket response scripts",
+          "usage": "/helpline staff"
+        },
+        {
+          "name": "owner",
+          "description": "Owner announcement scripts",
+          "usage": "/helpline owner"
+        }
+      ],
+      "usageAll": [
+        "/helpline staff",
+        "/helpline owner"
+      ]
+    },
+    {
+      "name": "oncall",
+      "description": "On-call rota management",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/oncall",
+      "subcommands": [
+        {
+          "name": "add",
+          "description": "Add an on-call staff member",
+          "usage": "/oncall add"
+        },
+        {
+          "name": "list",
+          "description": "List on-call rota",
+          "usage": "/oncall list"
+        },
+        {
+          "name": "remove",
+          "description": "Remove from on-call rota",
+          "usage": "/oncall remove"
+        },
+        {
+          "name": "ping",
+          "description": "Ping current on-call and fallback",
+          "usage": "/oncall ping"
+        }
+      ],
+      "usageAll": [
+        "/oncall add",
+        "/oncall list",
+        "/oncall remove",
+        "/oncall ping"
+      ]
+    },
+    {
+      "name": "sla",
+      "description": "SLA tracking tools",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/sla",
+      "subcommands": [
+        {
+          "name": "board",
+          "description": "Show current SLA board",
+          "usage": "/sla board"
+        }
+      ],
+      "usageAll": [
+        "/sla board"
+      ]
+    },
+    {
+      "name": "summarize",
+      "description": "AI-assisted moderation summaries",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/summarize",
+      "subcommands": [
+        {
+          "name": "channel",
+          "description": "Summarize recent channel activity",
+          "usage": "/summarize channel"
+        },
+        {
+          "name": "user",
+          "description": "Summarize moderation risk for user",
+          "usage": "/summarize user"
+        }
+      ],
+      "usageAll": [
+        "/summarize channel",
+        "/summarize user"
+      ]
+    },
+    {
+      "name": "safety",
+      "description": "Community safety scoring",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/safety",
+      "subcommands": [
+        {
+          "name": "score",
+          "description": "Show safety score for a channel",
+          "usage": "/safety score"
+        }
+      ],
+      "usageAll": [
+        "/safety score"
+      ]
+    },
+    {
+      "name": "drill",
+      "description": "Red-team simulation drills",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/drill",
+      "subcommands": [
+        {
+          "name": "start",
+          "description": "Start a drill scenario",
+          "usage": "/drill start"
+        },
+        {
+          "name": "score",
+          "description": "Score a drill result",
+          "usage": "/drill score"
+        },
+        {
+          "name": "report",
+          "description": "Show recent drill reports",
+          "usage": "/drill report"
+        }
+      ],
+      "usageAll": [
+        "/drill start",
+        "/drill score",
+        "/drill report"
+      ]
+    },
+    {
+      "name": "vault",
+      "description": "Evidence vault tools",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/vault",
+      "subcommands": [
+        {
+          "name": "create",
+          "description": "Create signed evidence link",
+          "usage": "/vault create"
+        },
+        {
+          "name": "list",
+          "description": "List recent evidence links",
+          "usage": "/vault list"
+        }
+      ],
+      "usageAll": [
+        "/vault create",
+        "/vault list"
+      ]
+    },
+    {
+      "name": "kb",
+      "description": "Knowledge base ingestion/search",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/kb",
+      "subcommands": [
+        {
+          "name": "ingest",
+          "description": "Ingest a knowledge snippet",
+          "usage": "/kb ingest"
+        },
+        {
+          "name": "search",
+          "description": "Search ingested knowledge",
+          "usage": "/kb search"
+        }
+      ],
+      "usageAll": [
+        "/kb ingest",
+        "/kb search"
+      ]
+    },
+    {
+      "name": "approve",
+      "description": "Approve or deny pending high-risk requests",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/approve",
+      "subcommands": [],
+      "usageAll": [
+        "/approve"
+      ]
+    },
+    {
+      "name": "diagnose",
+      "description": "Diagnose command readiness and permissions",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/diagnose",
+      "subcommands": [],
+      "usageAll": [
+        "/diagnose"
+      ]
+    },
+    {
+      "name": "health",
+      "description": "Run bot health checks (staff only)",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/health",
+      "subcommands": [],
+      "usageAll": [
+        "/health"
+      ]
+    },
+    {
+      "name": "game",
+      "description": "Game server controls (staff only)",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/game",
+      "subcommands": [
+        {
+          "name": "status",
+          "description": "Show live game server status",
+          "usage": "/game status"
+        },
+        {
+          "name": "players",
+          "description": "Show current online player count",
+          "usage": "/game players"
+        },
+        {
+          "name": "announce",
+          "description": "Broadcast a message to the game server",
+          "usage": "/game announce"
+        },
+        {
+          "name": "save",
+          "description": "Force save world state",
+          "usage": "/game save"
+        },
+        {
+          "name": "restart",
+          "description": "Restart the game server",
+          "usage": "/game restart"
+        },
+        {
+          "name": "command",
+          "description": "Run a raw game command",
+          "usage": "/game command"
+        }
+      ],
+      "usageAll": [
+        "/game status",
+        "/game players",
+        "/game announce",
+        "/game save",
+        "/game restart",
+        "/game command"
+      ]
+    },
+    {
+      "name": "ops",
+      "description": "Operations controls (staff only)",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/ops",
+      "subcommands": [
+        {
+          "name": "status",
+          "description": "Show runtime operations status",
+          "usage": "/ops status"
+        },
+        {
+          "name": "maintenance",
+          "description": "Set maintenance mode",
+          "usage": "/ops maintenance"
+        },
+        {
+          "name": "inventory",
+          "description": "Export or summarize members/channels/roles",
+          "usage": "/ops inventory"
+        },
+        {
+          "name": "safemode",
+          "description": "Toggle safe mode for high-risk admin actions",
+          "usage": "/ops safemode"
+        },
+        {
+          "name": "dashboard",
+          "description": "Get dashboard and metrics endpoints",
+          "usage": "/ops dashboard"
+        },
+        {
+          "name": "simulation",
+          "description": "Toggle simulation mode for staff drills",
+          "usage": "/ops simulation"
+        },
+        {
+          "name": "remediate",
+          "description": "Run auto-remediation recipe",
+          "usage": "/ops remediate"
+        },
+        {
+          "name": "organize",
+          "description": "Beautify channel layout, naming, topics, and archive stale channels",
+          "usage": "/ops organize"
+        },
+        {
+          "name": "welcome",
+          "description": "Build/update a polished welcome experience channel",
+          "usage": "/ops welcome"
+        },
+        {
+          "name": "channelmap",
+          "description": "Identify and map all channels by category/type",
+          "usage": "/ops channelmap"
+        },
+        {
+          "name": "textauto",
+          "description": "Automate all text channels with guides and topic upkeep",
+          "usage": "/ops textauto"
+        },
+        {
+          "name": "websitesync",
+          "description": "Sync rules/status/announcements/directory/story channels from website content",
+          "usage": "/ops websitesync"
+        },
+        {
+          "name": "digest",
+          "description": "Post staff operational digest summary",
+          "usage": "/ops digest"
+        },
+        {
+          "name": "analytics",
+          "description": "Show command analytics and error trends",
+          "usage": "/ops analytics"
+        },
+        {
+          "name": "channels",
+          "description": "Approve or deny pending channel creation requests",
+          "usage": "/ops channels"
+        },
+        {
+          "name": "syncpanel",
+          "description": "Sync bot operations snapshot to admin panel content",
+          "usage": "/ops syncpanel"
+        },
+        {
+          "name": "disaster",
+          "description": "Disaster recovery mode controls",
+          "usage": "/ops disaster"
+        }
+      ],
+      "usageAll": [
+        "/ops status",
+        "/ops maintenance",
+        "/ops inventory",
+        "/ops safemode",
+        "/ops dashboard",
+        "/ops simulation",
+        "/ops remediate",
+        "/ops organize",
+        "/ops welcome",
+        "/ops channelmap",
+        "/ops textauto",
+        "/ops websitesync",
+        "/ops digest",
+        "/ops analytics",
+        "/ops channels",
+        "/ops syncpanel",
+        "/ops disaster"
+      ]
+    },
+    {
+      "name": "botcontrol",
+      "description": "Owner/dev controls for bot automation and codex",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/botcontrol",
+      "subcommands": [
+        {
+          "name": "toggle",
+          "description": "Toggle runtime features without editing config",
+          "usage": "/botcontrol toggle"
+        },
+        {
+          "name": "run",
+          "description": "Run a manual automation job",
+          "usage": "/botcontrol run"
+        },
+        {
+          "name": "diag",
+          "description": "Show runtime bot control status",
+          "usage": "/botcontrol diag"
+        }
+      ],
+      "usageAll": [
+        "/botcontrol toggle",
+        "/botcontrol run",
+        "/botcontrol diag"
+      ]
+    },
+    {
+      "name": "assistant",
+      "description": "Control GreyHour Assistant per channel",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/assistant",
+      "subcommands": [
+        {
+          "name": "enable",
+          "description": "Enable assistant in a channel",
+          "usage": "/assistant enable"
+        },
+        {
+          "name": "disable",
+          "description": "Disable assistant in a channel",
+          "usage": "/assistant disable"
+        },
+        {
+          "name": "nomention",
+          "description": "Allow assistant without mention in a channel",
+          "usage": "/assistant nomention"
+        },
+        {
+          "name": "reset",
+          "description": "Clear overrides and return to auto behavior",
+          "usage": "/assistant reset"
+        },
+        {
+          "name": "status",
+          "description": "Show assistant channel settings",
+          "usage": "/assistant status"
+        }
+      ],
+      "usageAll": [
+        "/assistant enable",
+        "/assistant disable",
+        "/assistant nomention",
+        "/assistant reset",
+        "/assistant status"
+      ]
+    },
+    {
+      "name": "channelmode",
+      "description": "Lock or unlock channels for focused use",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/channelmode",
+      "subcommands": [
+        {
+          "name": "lock",
+          "description": "Make a channel read-only for members",
+          "usage": "/channelmode lock"
+        },
+        {
+          "name": "unlock",
+          "description": "Allow members to chat normally",
+          "usage": "/channelmode unlock"
+        },
+        {
+          "name": "status",
+          "description": "Show channel lock status",
+          "usage": "/channelmode status"
+        }
+      ],
+      "usageAll": [
+        "/channelmode lock",
+        "/channelmode unlock",
+        "/channelmode status"
+      ]
+    },
+    {
+      "name": "rolesync",
+      "description": "Validate and optionally repair role-sync mappings",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/rolesync",
+      "subcommands": [
+        {
+          "name": "preview",
+          "description": "Preview role-sync drift without changes",
+          "usage": "/rolesync preview"
+        },
+        {
+          "name": "validate",
+          "description": "Check role-sync drift and optionally apply fixes",
+          "usage": "/rolesync validate"
+        }
+      ],
+      "usageAll": [
+        "/rolesync preview",
+        "/rolesync validate"
+      ]
+    },
+    {
+      "name": "modcall",
+      "description": "Real-time moderator call workflow",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/modcall",
+      "subcommands": [
+        {
+          "name": "setup",
+          "description": "Post live mod call button panel (staff)",
+          "usage": "/modcall setup"
+        },
+        {
+          "name": "create",
+          "description": "Open a live moderator case",
+          "usage": "/modcall create"
+        },
+        {
+          "name": "list",
+          "description": "List mod cases (staff)",
+          "usage": "/modcall list"
+        },
+        {
+          "name": "claim",
+          "description": "Claim a mod case (staff)",
+          "usage": "/modcall claim"
+        },
+        {
+          "name": "transfer",
+          "description": "Transfer a case to another moderator (staff)",
+          "usage": "/modcall transfer"
+        },
+        {
+          "name": "close",
+          "description": "Close a mod case (staff)",
+          "usage": "/modcall close"
+        },
+        {
+          "name": "status",
+          "description": "Send reporter status update (staff)",
+          "usage": "/modcall status"
+        },
+        {
+          "name": "evidence",
+          "description": "Attach evidence to case (staff)",
+          "usage": "/modcall evidence"
+        },
+        {
+          "name": "flag",
+          "description": "Flag false-report abuse (staff)",
+          "usage": "/modcall flag"
+        },
+        {
+          "name": "template",
+          "description": "Post a canned staff response template",
+          "usage": "/modcall template"
+        },
+        {
+          "name": "export",
+          "description": "Export a full case bundle",
+          "usage": "/modcall export"
+        },
+        {
+          "name": "wizard",
+          "description": "Guided moderation case workflow",
+          "usage": "/modcall wizard"
+        },
+        {
+          "name": "reopen",
+          "description": "Reopen a previously closed case",
+          "usage": "/modcall reopen"
+        },
+        {
+          "name": "priority",
+          "description": "Adjust case priority",
+          "usage": "/modcall priority"
+        },
+        {
+          "name": "vault",
+          "description": "Create evidence vault link for a case",
+          "usage": "/modcall vault"
+        }
+      ],
+      "usageAll": [
+        "/modcall setup",
+        "/modcall create",
+        "/modcall list",
+        "/modcall claim",
+        "/modcall transfer",
+        "/modcall close",
+        "/modcall status",
+        "/modcall evidence",
+        "/modcall flag",
+        "/modcall template",
+        "/modcall export",
+        "/modcall wizard",
+        "/modcall reopen",
+        "/modcall priority",
+        "/modcall vault"
+      ]
+    },
+    {
+      "name": "case",
+      "description": "Case routing helpers",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/case",
+      "subcommands": [
+        {
+          "name": "assign-next",
+          "description": "Assign an open case to the least-busy on-shift moderator",
+          "usage": "/case assign-next"
+        },
+        {
+          "name": "timeline",
+          "description": "Render full timeline for a case",
+          "usage": "/case timeline"
+        }
+      ],
+      "usageAll": [
+        "/case assign-next",
+        "/case timeline"
+      ]
+    },
+    {
+      "name": "staffpanel",
+      "description": "Post a one-click staff control panel",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/staffpanel",
+      "subcommands": [],
+      "usageAll": [
+        "/staffpanel"
+      ]
+    },
+    {
+      "name": "staffquickstart",
+      "description": "Post and pin a staff quickstart guide",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/staffquickstart",
+      "subcommands": [],
+      "usageAll": [
+        "/staffquickstart"
+      ]
+    },
+    {
+      "name": "playbook",
+      "description": "Show moderator response playbooks",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/playbook",
+      "subcommands": [],
+      "usageAll": [
+        "/playbook"
+      ]
+    },
+    {
+      "name": "triage",
+      "description": "Analyze ticket/case text for severity, category, and actions",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/triage",
+      "subcommands": [],
+      "usageAll": [
+        "/triage"
+      ]
+    },
+    {
+      "name": "voice",
+      "description": "Voice moderation tools",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/voice",
+      "subcommands": [
+        {
+          "name": "panic-move",
+          "description": "Move all users in your current voice channel to target voice channel",
+          "usage": "/voice panic-move"
+        },
+        {
+          "name": "mute-cooldown",
+          "description": "Timeout all users in your current voice channel for a short cooldown",
+          "usage": "/voice mute-cooldown"
+        }
+      ],
+      "usageAll": [
+        "/voice panic-move",
+        "/voice mute-cooldown"
+      ]
+    },
+    {
+      "name": "trustgraph",
+      "description": "Analyze trust/risk context for a user",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/trustgraph",
+      "subcommands": [],
+      "usageAll": [
+        "/trustgraph"
+      ]
+    },
+    {
+      "name": "policy",
+      "description": "Policy simulator tools",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/policy",
+      "subcommands": [
+        {
+          "name": "test",
+          "description": "Test whether a user can run a command",
+          "usage": "/policy test"
+        },
+        {
+          "name": "suggest",
+          "description": "Suggest policy updates from denied/error command patterns",
+          "usage": "/policy suggest"
+        }
+      ],
+      "usageAll": [
+        "/policy test",
+        "/policy suggest"
+      ]
+    },
+    {
+      "name": "copilot",
+      "description": "Staff copilot recommendations",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/copilot",
+      "subcommands": [
+        {
+          "name": "suggest",
+          "description": "Suggest next best moderation actions for a case",
+          "usage": "/copilot suggest"
+        }
+      ],
+      "usageAll": [
+        "/copilot suggest"
+      ]
+    },
+    {
+      "name": "shiftplan",
+      "description": "Moderator shift scheduling",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/shiftplan",
+      "subcommands": [
+        {
+          "name": "add",
+          "description": "Add a shift reminder",
+          "usage": "/shiftplan add"
+        },
+        {
+          "name": "list",
+          "description": "List your shift reminders",
+          "usage": "/shiftplan list"
+        },
+        {
+          "name": "remove",
+          "description": "Remove shift reminder by id",
+          "usage": "/shiftplan remove"
+        }
+      ],
+      "usageAll": [
+        "/shiftplan add",
+        "/shiftplan list",
+        "/shiftplan remove"
+      ]
+    },
+    {
+      "name": "handoff",
+      "description": "Generate shift handoff summary",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/handoff",
+      "subcommands": [],
+      "usageAll": [
+        "/handoff"
+      ]
+    },
+    {
+      "name": "permissions",
+      "description": "Audit bot permissions in key channels",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/permissions",
+      "subcommands": [
+        {
+          "name": "audit",
+          "description": "Check for missing permissions",
+          "usage": "/permissions audit"
+        }
+      ],
+      "usageAll": [
+        "/permissions audit"
+      ]
+    },
+    {
+      "name": "staffstats",
+      "description": "Show moderator performance metrics",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/staffstats",
+      "subcommands": [],
+      "usageAll": [
+        "/staffstats"
+      ]
+    },
+    {
+      "name": "announcepreset",
+      "description": "Send a preset staff announcement",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/announcepreset",
+      "subcommands": [],
+      "usageAll": [
+        "/announcepreset"
+      ]
+    },
+    {
+      "name": "knowledge",
+      "description": "Search staff knowledge base (rules, playbooks, FAQ)",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/knowledge",
+      "subcommands": [],
+      "usageAll": [
+        "/knowledge"
+      ]
+    },
+    {
+      "name": "mod",
+      "description": "Moderator shift and analytics",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/mod",
+      "subcommands": [
+        {
+          "name": "shift",
+          "description": "Set your moderator shift status",
+          "usage": "/mod shift"
+        },
+        {
+          "name": "coverage",
+          "description": "Show on-shift coverage and open queue",
+          "usage": "/mod coverage"
+        },
+        {
+          "name": "metrics",
+          "description": "Show weekly moderation metrics",
+          "usage": "/mod metrics"
+        }
+      ],
+      "usageAll": [
+        "/mod shift",
+        "/mod coverage",
+        "/mod metrics"
+      ]
+    },
+    {
+      "name": "admin",
+      "description": "Admin control plane with approvals and rollback",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/admin",
+      "subcommands": [
+        {
+          "name": "purge",
+          "description": "Purge recent messages",
+          "usage": "/admin purge"
+        },
+        {
+          "name": "lockdown",
+          "description": "Lock a channel for @everyone",
+          "usage": "/admin lockdown"
+        },
+        {
+          "name": "unlockdown",
+          "description": "Unlock a channel for @everyone",
+          "usage": "/admin unlockdown"
+        },
+        {
+          "name": "rolegrant",
+          "description": "Grant role to user",
+          "usage": "/admin rolegrant"
+        },
+        {
+          "name": "rolerevoke",
+          "description": "Revoke role from user",
+          "usage": "/admin rolerevoke"
+        },
+        {
+          "name": "snapshot",
+          "description": "Capture current channel lock/slowmode snapshot",
+          "usage": "/admin snapshot"
+        },
+        {
+          "name": "rollback",
+          "description": "Rollback channel lock/slowmode snapshot",
+          "usage": "/admin rollback"
+        },
+        {
+          "name": "health",
+          "description": "Run admin control plane health checks",
+          "usage": "/admin health"
+        },
+        {
+          "name": "doctor",
+          "description": "Suggest precise remediation for admin control issues",
+          "usage": "/admin doctor"
+        }
+      ],
+      "usageAll": [
+        "/admin purge",
+        "/admin lockdown",
+        "/admin unlockdown",
+        "/admin rolegrant",
+        "/admin rolerevoke",
+        "/admin snapshot",
+        "/admin rollback",
+        "/admin health",
+        "/admin doctor"
+      ]
+    },
+    {
+      "name": "metrics",
+      "description": "Show bot runtime metrics (staff only)",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/metrics",
+      "subcommands": [],
+      "usageAll": [
+        "/metrics"
+      ]
+    },
+    {
+      "name": "whois",
+      "description": "Show member profile",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/whois",
+      "subcommands": [],
+      "usageAll": [
+        "/whois"
+      ]
+    },
+    {
+      "name": "playercount",
+      "description": "Show live player count",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/playercount",
+      "subcommands": [],
+      "usageAll": [
+        "/playercount"
+      ]
+    },
+    {
+      "name": "music",
+      "description": "Music playback controls",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/music",
+      "subcommands": [
+        {
+          "name": "play",
+          "description": "Play by artist/song text, URL, or auto-playlist",
+          "usage": "/music play"
+        },
+        {
+          "name": "queue",
+          "description": "Show current queue",
+          "usage": "/music queue"
+        },
+        {
+          "name": "skip",
+          "description": "Skip current track",
+          "usage": "/music skip"
+        },
+        {
+          "name": "stop",
+          "description": "Stop playback and clear queue",
+          "usage": "/music stop"
+        },
+        {
+          "name": "leave",
+          "description": "Disconnect and clear queue",
+          "usage": "/music leave"
+        },
+        {
+          "name": "setup",
+          "description": "Create and approve music text/voice channels",
+          "usage": "/music setup"
+        },
+        {
+          "name": "approve",
+          "description": "Approve channels or bot user for music policy",
+          "usage": "/music approve"
+        },
+        {
+          "name": "revoke",
+          "description": "Remove channels or bot user from music policy",
+          "usage": "/music revoke"
+        },
+        {
+          "name": "list",
+          "description": "Show current music policy",
+          "usage": "/music list"
+        }
+      ],
+      "usageAll": [
+        "/music play",
+        "/music queue",
+        "/music skip",
+        "/music stop",
+        "/music leave",
+        "/music setup",
+        "/music approve",
+        "/music revoke",
+        "/music list"
+      ]
+    },
+    {
+      "name": "staff",
+      "description": "Show current owners/admins/moderators",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/staff",
+      "subcommands": [],
+      "usageAll": [
+        "/staff"
+      ]
+    },
+    {
+      "name": "links",
+      "description": "Show Grey Hour RP links",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/links",
+      "subcommands": [],
+      "usageAll": [
+        "/links"
+      ]
+    },
+    {
+      "name": "lore",
+      "description": "Show the Grey Hour lore primer",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/lore",
+      "subcommands": [],
+      "usageAll": [
+        "/lore"
+      ]
+    },
+    {
+      "name": "status",
+      "description": "Get live server status",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/status",
+      "subcommands": [],
+      "usageAll": [
+        "/status"
+      ]
+    },
+    {
+      "name": "statushistory",
+      "description": "Show recent status history",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/statushistory",
+      "subcommands": [],
+      "usageAll": [
+        "/statushistory"
+      ]
+    },
+    {
+      "name": "updates",
+      "description": "Show latest update",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/updates",
+      "subcommands": [],
+      "usageAll": [
+        "/updates"
+      ]
+    },
+    {
+      "name": "transmissions",
+      "description": "Show latest transmission",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/transmissions",
+      "subcommands": [],
+      "usageAll": [
+        "/transmissions"
+      ]
+    },
+    {
+      "name": "mods",
+      "description": "Get modpack info",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/mods",
+      "subcommands": [],
+      "usageAll": [
+        "/mods"
+      ]
+    },
+    {
+      "name": "rules",
+      "description": "Show rules link",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/rules",
+      "subcommands": [],
+      "usageAll": [
+        "/rules"
+      ]
+    },
+    {
+      "name": "join",
+      "description": "How to join Grey Hour RP",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/join",
+      "subcommands": [],
+      "usageAll": [
+        "/join"
+      ]
+    },
+    {
+      "name": "announce",
+      "description": "Send announcement to Discord",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/announce",
+      "subcommands": [],
+      "usageAll": [
+        "/announce"
+      ]
+    },
+    {
+      "name": "reminder",
+      "description": "Manage scheduled reminders",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/reminder",
+      "subcommands": [
+        {
+          "name": "add",
+          "description": "Create a reminder",
+          "usage": "/reminder add"
+        },
+        {
+          "name": "list",
+          "description": "List upcoming reminders",
+          "usage": "/reminder list"
+        },
+        {
+          "name": "remove",
+          "description": "Remove a reminder by id",
+          "usage": "/reminder remove"
+        }
+      ],
+      "usageAll": [
+        "/reminder add",
+        "/reminder list",
+        "/reminder remove"
+      ]
+    },
+    {
+      "name": "roll",
+      "description": "Roll dice",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/roll",
+      "subcommands": [],
+      "usageAll": [
+        "/roll"
+      ]
+    },
+    {
+      "name": "activity",
+      "description": "Show recent admin activity (staff only)",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/activity",
+      "subcommands": [],
+      "usageAll": [
+        "/activity"
+      ]
+    },
+    {
+      "name": "poll",
+      "description": "Create a quick reaction poll (staff only)",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/poll",
+      "subcommands": [],
+      "usageAll": [
+        "/poll"
+      ]
+    },
+    {
+      "name": "event",
+      "description": "Manage community events (staff only)",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/event",
+      "subcommands": [
+        {
+          "name": "create",
+          "description": "Create an event",
+          "usage": "/event create"
+        },
+        {
+          "name": "list",
+          "description": "List active events",
+          "usage": "/event list"
+        },
+        {
+          "name": "announce",
+          "description": "Announce an event by id",
+          "usage": "/event announce"
+        },
+        {
+          "name": "end",
+          "description": "Mark an event completed",
+          "usage": "/event end"
+        }
+      ],
+      "usageAll": [
+        "/event create",
+        "/event list",
+        "/event announce",
+        "/event end"
+      ]
+    },
+    {
+      "name": "ticket",
+      "description": "Open or close support tickets",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/ticket",
+      "subcommands": [
+        {
+          "name": "create",
+          "description": "Create a private support ticket",
+          "usage": "/ticket create"
+        },
+        {
+          "name": "close",
+          "description": "Close the current ticket thread",
+          "usage": "/ticket close"
+        },
+        {
+          "name": "forceclose",
+          "description": "Owner/admin recovery close for broken ticket metadata",
+          "usage": "/ticket forceclose"
+        },
+        {
+          "name": "intake",
+          "description": "Open structured ticket intake form",
+          "usage": "/ticket intake"
+        },
+        {
+          "name": "wizard",
+          "description": "Guided ticket intake workflow",
+          "usage": "/ticket wizard"
+        },
+        {
+          "name": "reopen",
+          "description": "Reopen a closed ticket by id",
+          "usage": "/ticket reopen"
+        },
+        {
+          "name": "feedback",
+          "description": "Submit post-ticket feedback",
+          "usage": "/ticket feedback"
+        }
+      ],
+      "usageAll": [
+        "/ticket create",
+        "/ticket close",
+        "/ticket forceclose",
+        "/ticket intake",
+        "/ticket wizard",
+        "/ticket reopen",
+        "/ticket feedback"
+      ]
+    },
+    {
+      "name": "moddiff",
+      "description": "Show modpack changes since last snapshot",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/moddiff",
+      "subcommands": [],
+      "usageAll": [
+        "/moddiff"
+      ]
+    },
+    {
+      "name": "purge",
+      "description": "Delete recent messages in this channel (staff only)",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/purge",
+      "subcommands": [],
+      "usageAll": [
+        "/purge"
+      ]
+    },
+    {
+      "name": "clear",
+      "description": "Advanced channel clear tools (staff only)",
+      "permission": "staff",
+      "defaultMemberPermissions": "8192",
+      "dmPermission": null,
+      "usage": "/clear",
+      "subcommands": [
+        {
+          "name": "messages",
+          "description": "Delete recent messages in batches",
+          "usage": "/clear messages"
+        },
+        {
+          "name": "all",
+          "description": "Clear all deletable recent messages from a channel",
+          "usage": "/clear all"
+        },
+        {
+          "name": "old",
+          "description": "Delete old messages (older than 14 days) one-by-one",
+          "usage": "/clear old"
+        },
+        {
+          "name": "nuke",
+          "description": "Recreate a channel to wipe full history",
+          "usage": "/clear nuke"
+        }
+      ],
+      "usageAll": [
+        "/clear messages",
+        "/clear all",
+        "/clear old",
+        "/clear nuke"
+      ]
+    },
+    {
+      "name": "slowmode",
+      "description": "Set channel slowmode seconds (staff only)",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/slowmode",
+      "subcommands": [],
+      "usageAll": [
+        "/slowmode"
+      ]
+    },
+    {
+      "name": "lock",
+      "description": "Lock current channel for @everyone (staff only)",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/lock",
+      "subcommands": [],
+      "usageAll": [
+        "/lock"
+      ]
+    },
+    {
+      "name": "unlock",
+      "description": "Unlock current channel for @everyone (staff only)",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/unlock",
+      "subcommands": [],
+      "usageAll": [
+        "/unlock"
+      ]
+    },
+    {
+      "name": "lfg",
+      "description": "Looking-for-group tools",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/lfg",
+      "subcommands": [
+        {
+          "name": "create",
+          "description": "Create an LFG post",
+          "usage": "/lfg create"
+        },
+        {
+          "name": "list",
+          "description": "List active LFG posts",
+          "usage": "/lfg list"
+        },
+        {
+          "name": "close",
+          "description": "Close one of your LFG posts",
+          "usage": "/lfg close"
+        }
+      ],
+      "usageAll": [
+        "/lfg create",
+        "/lfg list",
+        "/lfg close"
+      ]
+    },
+    {
+      "name": "group",
+      "description": "Faction and shop group tools",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/group",
+      "subcommands": [
+        {
+          "name": "request",
+          "description": "Request a new faction/shop group (admin approval required)",
+          "usage": "/group request"
+        },
+        {
+          "name": "add",
+          "description": "Add a member to your group",
+          "usage": "/group add"
+        },
+        {
+          "name": "remove",
+          "description": "Remove a member from your group",
+          "usage": "/group remove"
+        },
+        {
+          "name": "roster",
+          "description": "Show your group roster",
+          "usage": "/group roster"
+        },
+        {
+          "name": "disband",
+          "description": "Disband your group (owner or staff)",
+          "usage": "/group disband"
+        }
+      ],
+      "usageAll": [
+        "/group request",
+        "/group add",
+        "/group remove",
+        "/group roster",
+        "/group disband"
+      ]
+    },
+    {
+      "name": "level",
+      "description": "Show your level and XP",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/level",
+      "subcommands": [],
+      "usageAll": [
+        "/level"
+      ]
+    },
+    {
+      "name": "levels",
+      "description": "Show the top level leaderboard",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/levels",
+      "subcommands": [],
+      "usageAll": [
+        "/levels"
+      ]
+    },
+    {
+      "name": "trade",
+      "description": "Loot and trade board",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/trade",
+      "subcommands": [
+        {
+          "name": "post",
+          "description": "Create a trade listing",
+          "usage": "/trade post"
+        },
+        {
+          "name": "list",
+          "description": "List active trade posts",
+          "usage": "/trade list"
+        },
+        {
+          "name": "close",
+          "description": "Close your trade listing",
+          "usage": "/trade close"
+        }
+      ],
+      "usageAll": [
+        "/trade post",
+        "/trade list",
+        "/trade close"
+      ]
+    },
+    {
+      "name": "contest",
+      "description": "Community contests",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/contest",
+      "subcommands": [
+        {
+          "name": "start",
+          "description": "Start a contest",
+          "usage": "/contest start"
+        },
+        {
+          "name": "vote",
+          "description": "Vote in a contest",
+          "usage": "/contest vote"
+        },
+        {
+          "name": "end",
+          "description": "End a contest",
+          "usage": "/contest end"
+        }
+      ],
+      "usageAll": [
+        "/contest start",
+        "/contest vote",
+        "/contest end"
+      ]
+    },
+    {
+      "name": "pz",
+      "description": "Project Zomboid quick knowledge",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/pz",
+      "subcommands": [
+        {
+          "name": "trait",
+          "description": "Trait tip",
+          "usage": "/pz trait"
+        },
+        {
+          "name": "recipe",
+          "description": "Crafting recipe tip",
+          "usage": "/pz recipe"
+        },
+        {
+          "name": "infection",
+          "description": "Infection / wound guidance",
+          "usage": "/pz infection"
+        },
+        {
+          "name": "skill",
+          "description": "Skill leveling tip",
+          "usage": "/pz skill"
+        }
+      ],
+      "usageAll": [
+        "/pz trait",
+        "/pz recipe",
+        "/pz infection",
+        "/pz skill"
+      ]
+    },
+    {
+      "name": "mapmark",
+      "description": "Map marker tools",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/mapmark",
+      "subcommands": [
+        {
+          "name": "add",
+          "description": "Add a community map marker",
+          "usage": "/mapmark add"
+        },
+        {
+          "name": "list",
+          "description": "List map markers",
+          "usage": "/mapmark list"
+        },
+        {
+          "name": "remove",
+          "description": "Remove your marker",
+          "usage": "/mapmark remove"
+        }
+      ],
+      "usageAll": [
+        "/mapmark add",
+        "/mapmark list",
+        "/mapmark remove"
+      ]
+    },
+    {
+      "name": "safehouse",
+      "description": "Safehouse request workflow",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/safehouse",
+      "subcommands": [
+        {
+          "name": "request",
+          "description": "Request safehouse approval",
+          "usage": "/safehouse request"
+        },
+        {
+          "name": "review",
+          "description": "Approve/deny a request (staff)",
+          "usage": "/safehouse review"
+        },
+        {
+          "name": "list",
+          "description": "List safehouse requests",
+          "usage": "/safehouse list"
+        }
+      ],
+      "usageAll": [
+        "/safehouse request",
+        "/safehouse review",
+        "/safehouse list"
+      ]
+    },
+    {
+      "name": "raid",
+      "description": "Raid/event scheduler",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/raid",
+      "subcommands": [
+        {
+          "name": "create",
+          "description": "Create a raid event",
+          "usage": "/raid create"
+        },
+        {
+          "name": "list",
+          "description": "List active raids",
+          "usage": "/raid list"
+        },
+        {
+          "name": "end",
+          "description": "End a raid",
+          "usage": "/raid end"
+        }
+      ],
+      "usageAll": [
+        "/raid create",
+        "/raid list",
+        "/raid end"
+      ]
+    },
+    {
+      "name": "signup",
+      "description": "Join/leave event or raid signups",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/signup",
+      "subcommands": [
+        {
+          "name": "join",
+          "description": "Join by event/raid id",
+          "usage": "/signup join"
+        },
+        {
+          "name": "leave",
+          "description": "Leave by id",
+          "usage": "/signup leave"
+        },
+        {
+          "name": "list",
+          "description": "List signups for id",
+          "usage": "/signup list"
+        }
+      ],
+      "usageAll": [
+        "/signup join",
+        "/signup leave",
+        "/signup list"
+      ]
+    },
+    {
+      "name": "commend",
+      "description": "Commend a helpful survivor",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/commend",
+      "subcommands": [],
+      "usageAll": [
+        "/commend"
+      ]
+    },
+    {
+      "name": "squadvc",
+      "description": "Temporary squad voice channels",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/squadvc",
+      "subcommands": [
+        {
+          "name": "create",
+          "description": "Create a temporary squad VC",
+          "usage": "/squadvc create"
+        },
+        {
+          "name": "close",
+          "description": "Close your squad VC",
+          "usage": "/squadvc close"
+        }
+      ],
+      "usageAll": [
+        "/squadvc create",
+        "/squadvc close"
+      ]
+    },
+    {
+      "name": "optin",
+      "description": "Toggle alert roles",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/optin",
+      "subcommands": [],
+      "usageAll": [
+        "/optin"
+      ]
+    },
+    {
+      "name": "onboard",
+      "description": "Onboarding panel tools",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/onboard",
+      "subcommands": [
+        {
+          "name": "post",
+          "description": "Post onboarding instructions (staff)",
+          "usage": "/onboard post"
+        }
+      ],
+      "usageAll": [
+        "/onboard post"
+      ]
+    },
+    {
+      "name": "raidmode",
+      "description": "Anti-raid moderation mode (staff)",
+      "permission": "public",
+      "defaultMemberPermissions": null,
+      "dmPermission": null,
+      "usage": "/raidmode",
+      "subcommands": [],
+      "usageAll": [
+        "/raidmode"
+      ]
+    },
+    {
+      "name": "audit",
+      "description": "View command audit logs (staff)",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/audit",
+      "subcommands": [
+        {
+          "name": "list",
+          "description": "Show recent audit entries",
+          "usage": "/audit list"
+        },
+        {
+          "name": "export",
+          "description": "Export audit entries as a file",
+          "usage": "/audit export"
+        },
+        {
+          "name": "verify",
+          "description": "Verify signed audit hash chain integrity",
+          "usage": "/audit verify"
+        }
+      ],
+      "usageAll": [
+        "/audit list",
+        "/audit export",
+        "/audit verify"
+      ]
+    },
+    {
+      "name": "incident",
+      "description": "Moderation incident tracking",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/incident",
+      "subcommands": [
+        {
+          "name": "create",
+          "description": "Create a moderation incident (staff)",
+          "usage": "/incident create"
+        },
+        {
+          "name": "list",
+          "description": "List incidents (staff)",
+          "usage": "/incident list"
+        },
+        {
+          "name": "resolve",
+          "description": "Resolve incident by id (staff)",
+          "usage": "/incident resolve"
+        },
+        {
+          "name": "link",
+          "description": "Link incident to a mod case",
+          "usage": "/incident link"
+        },
+        {
+          "name": "correlate",
+          "description": "Correlate incidents for a target user",
+          "usage": "/incident correlate"
+        },
+        {
+          "name": "report",
+          "description": "Generate post-incident report",
+          "usage": "/incident report"
+        },
+        {
+          "name": "postmortem_create",
+          "description": "Create postmortem draft for incident",
+          "usage": "/incident postmortem_create"
+        },
+        {
+          "name": "postmortem_approve",
+          "description": "Approve postmortem draft by id",
+          "usage": "/incident postmortem_approve"
+        },
+        {
+          "name": "wizard",
+          "description": "Guided incident response workflow",
+          "usage": "/incident wizard"
+        }
+      ],
+      "usageAll": [
+        "/incident create",
+        "/incident list",
+        "/incident resolve",
+        "/incident link",
+        "/incident correlate",
+        "/incident report",
+        "/incident postmortem_create",
+        "/incident postmortem_approve",
+        "/incident wizard"
+      ]
+    },
+    {
+      "name": "backup",
+      "description": "Backup/restore bot data stores (staff)",
+      "permission": "admin",
+      "defaultMemberPermissions": "32",
+      "dmPermission": null,
+      "usage": "/backup",
+      "subcommands": [
+        {
+          "name": "create",
+          "description": "Create a data snapshot",
+          "usage": "/backup create"
+        },
+        {
+          "name": "list",
+          "description": "List backups",
+          "usage": "/backup list"
+        },
+        {
+          "name": "restore",
+          "description": "Restore backup by file name",
+          "usage": "/backup restore"
+        }
+      ],
+      "usageAll": [
+        "/backup create",
+        "/backup list",
+        "/backup restore"
+      ]
+    }
+  ]
+}

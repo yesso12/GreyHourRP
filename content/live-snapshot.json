@@ -1,0 +1,28 @@
+{
+  "gameServer": {
+    "status": "offline",
+    "playersOnline": 0,
+    "maxPlayers": 0,
+    "queue": 0,
+    "map": "Muldraugh",
+    "updatedUtc": "1970-01-01T00:00:00.000Z"
+  },
+  "discord": {
+    "online": false,
+    "members": 0,
+    "activeTickets": 0,
+    "openModcalls": 0,
+    "updatedUtc": "1970-01-01T00:00:00.000Z"
+  },
+  "readiness": {
+    "gameServerApiReady": true,
+    "discordApiReady": true,
+    "webhooksReady": true,
+    "notes": [
+      "Live data served from https://greyhourrp.xyz/api/public/live-snapshot",
+      "Game telemetry source: https://greyhourrp.xyz/api/public/game/telemetry",
+      "Discord metrics source: https://greyhourrp.xyz/api/public/discord/status",
+      "Fallback snapshot is only used if live API is unreachable."
+    ]
+  }
+}

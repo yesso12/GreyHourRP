@@ -1,0 +1,81 @@
+{
+  "updatedUtc": "2026-02-05T00:00:00Z",
+  "mapUrl": "",
+  "mapAlt": "Project Zomboid region map",
+  "mapAttribution": "",
+  "notes": [
+    "Territory data is curated weekly."
+  ],
+  "factions": [
+    {
+      "id": "faction-dusk",
+      "name": "Dusk Collective",
+      "tagline": "Order after the fall.",
+      "description": "A disciplined bloc holding the line between order and chaos.",
+      "status": "active",
+      "color": "#b10f16",
+      "icon": "",
+      "leader": "Marshal Voss",
+      "headquarters": "Riverside",
+      "members": 18,
+      "reputation": 72,
+      "foundedUtc": "2025-10-08T19:00:00Z",
+      "allies": [],
+      "rivals": [
+        "Ash Line"
+      ],
+      "featured": true
+    },
+    {
+      "id": "faction-ash",
+      "name": "Ash Line",
+      "tagline": "No signal, no mercy.",
+      "description": "Raiders and smugglers exploiting the dead zones and fractured roads.",
+      "status": "active",
+      "color": "#f87171",
+      "icon": "",
+      "leader": "Red Marlow",
+      "headquarters": "West Point",
+      "members": 12,
+      "reputation": 41,
+      "foundedUtc": "2025-11-02T21:00:00Z",
+      "allies": [],
+      "rivals": [
+        "Dusk Collective"
+      ],
+      "featured": true
+    }
+  ],
+  "territories": [
+    {
+      "id": "territory-riverside",
+      "name": "Riverside",
+      "x": 30,
+      "y": 42,
+      "status": "controlled",
+      "factionId": "faction-dusk",
+      "region": "West",
+      "description": "Stable supply routes and protected safehouses.",
+      "lastConflictUtc": "2026-01-27T22:10:00Z",
+      "tags": [
+        "safehouse",
+        "trade"
+      ]
+    },
+    {
+      "id": "territory-west-point",
+      "name": "West Point",
+      "x": 62,
+      "y": 36,
+      "status": "contested",
+      "factionId": "faction-ash",
+      "region": "North",
+      "description": "Skirmishes over fuel and access to the river.",
+      "lastConflictUtc": "2026-02-02T03:30:00Z",
+      "tags": [
+        "fuel",
+        "raid"
+      ]
+    }
+  ]
+}

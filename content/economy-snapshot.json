@@ -1,0 +1,43 @@
+{
+  "updatedUtc": "2026-02-05T00:00:00Z",
+  "status": "volatile",
+  "summary": "Fuel is scarce, medical supplies are stabilizing, and ammo remains tightly controlled.",
+  "priceIndex": 118,
+  "scarcityIndex": 64,
+  "highlights": [
+    "Fuel reserves below threshold",
+    "Fresh produce trading up in Riverside"
+  ],
+  "categories": [
+    {
+      "id": "cat-fuel",
+      "name": "Fuel",
+      "trend": "up",
+      "note": "Supply disruptions near West Point."
+    },
+    {
+      "id": "cat-medical",
+      "name": "Medical",
+      "trend": "flat",
+      "note": "Clinic deliveries stabilized."
+    },
+    {
+      "id": "cat-ammo",
+      "name": "Ammunition",
+      "trend": "up",
+      "note": "Demand exceeds stock."
+    }
+  ],
+  "watchlist": [
+    {
+      "item": "Fuel",
+      "status": "scarce",
+      "note": "Convoy escort required."
+    },
+    {
+      "item": "Antibiotics",
+      "status": "stable",
+      "note": "Supplies holding."
+    }
+  ]
+}
