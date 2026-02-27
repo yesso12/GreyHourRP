@@ -1,0 +1,15 @@
+[Unit]
+Description=GreyHourRP automation queue worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/greyhourrp-automation
+WorkingDirectory=/opt/greyhourrp
+ExecStart=/usr/bin/node /opt/greyhourrp/scripts/queue-worker.mjs
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,36 +1,28 @@
-import { useEffect, useState } from 'react'
+import { useMemo } from 'react'
 import { Navbar } from './Navbar'
 import { Footer } from './Footer'
-import { Particles } from './Particles'
+import { RecruitmentBar } from './RecruitmentBar'
 import { useTheme } from './useTheme'
 import { useAmbientAudio } from './useAmbientAudio'
-import { fetchJson } from './utils'
-import type { ServerStatus } from '../types/content'
+import type { SiteFlags } from '../types/content'
+import { PublicLiveProvider, usePublicLive } from '../hooks/usePublicLive'
 
-export function SiteShell({ children }: { children: React.ReactNode }) {
+function SiteShellBody({ children, siteFlags }: { children: React.ReactNode; siteFlags?: SiteFlags }) {
   const theme = useTheme()
   const audio = useAmbientAudio()
-  const [serverStatus, setServerStatus] = useState<ServerStatus['status']>('online')
+  const liveState = usePublicLive()
 
-  useEffect(() => {
-    const load = () => {
-      fetchJson<{ status: ServerStatus['status'] }>('/content/server-status.json')
-        .then((d) => setServerStatus(d.status))
-        .catch(() => setServerStatus('offline'))
-    }
-
-    load()
-    const id = setInterval(load, 60000)
-    return () => clearInterval(id)
-  }, [])
+  const audioModeLabel = useMemo(() => {
+    if (!audio.enabled) return 'off'
+    return audio.mode
+  }, [audio.enabled, audio.mode])
 
   return (
     <div className="noise">
       <div className="blood" aria-hidden="true" />
       <div className="hourglass-backdrop" aria-hidden="true" />
-      <Particles />
 
-      {serverStatus === 'maintenance' && (
+      {liveState?.serverStatus === 'maintenance' && (
         <div className="status-banner">
           Server is currently under maintenance. Progress is preserved.
         </div>
@@ -40,15 +32,23 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         onToggleTheme={theme.toggle}
         themeLabel={theme.theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
         onToggleAudio={() => audio.setEnabled(v => !v)}
-        audioLabel={
-          audio.enabled
-            ? 'Audio: On'
-            : audio.available
-            ? 'Audio: Off'
-            : 'Audio: Add file'
-        }
+        audioEnabled={audio.enabled}
         audioAvailable={audio.available}
+        audioMode={audioModeLabel}
+        audioPreset={audio.preset}
+        audioPresets={audio.presets.map(p => ({ id: p.id, label: p.label }))}
+        onAudioPresetChange={(next) => audio.setPreset(next as typeof audio.preset)}
+        volume={audio.volume}
+        onVolumeChange={audio.setVolume}
+        sfxEnabled={audio.sfxEnabled}
+        onToggleSfx={() => audio.setSfxEnabled(v => !v)}
+        onUiClick={audio.playUiClick}
+        serverStatus={liveState?.live?.gameServer.status ?? liveState?.serverStatus ?? 'offline'}
+        discordOnline={liveState?.live?.discord.online ?? null}
+        discordMembers={liveState?.live?.discord.members ?? null}
+        siteFlags={siteFlags}
       />
+      <RecruitmentBar />
 
       <main style={{ minHeight: 'calc(100vh - 220px)' }}>
         {children}
@@ -56,5 +56,13 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
       <Footer />
     </div>
+  )
+}
+
+export function SiteShell({ children, siteFlags }: { children: React.ReactNode; siteFlags?: SiteFlags }) {
+  return (
+    <PublicLiveProvider>
+      <SiteShellBody siteFlags={siteFlags}>{children}</SiteShellBody>
+    </PublicLiveProvider>
   )
 }

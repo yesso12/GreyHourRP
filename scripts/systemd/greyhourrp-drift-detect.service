@@ -1,0 +1,10 @@
+[Unit]
+Description=GreyHourRP configuration drift detection
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/greyhourrp-automation
+WorkingDirectory=/opt/greyhourrp
+ExecStart=/opt/greyhourrp/scripts/systemd/run-with-alert.sh drift-detect /opt/greyhourrp/scripts/drift-detect.sh check

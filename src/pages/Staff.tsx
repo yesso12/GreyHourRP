@@ -1,4 +1,5 @@
 import { Section } from '../components/Section'
+import { useDiscordInvite } from '../hooks/useDiscordInvite'
 
 type StaffMember = {
   name: string
@@ -28,6 +29,7 @@ const staff: StaffMember[] = [
 ]
 
 export function Staff() {
+  const discordInviteUrl = useDiscordInvite()
   return (
     <div>
       <section className="page-hero">
@@ -77,7 +79,7 @@ export function Staff() {
             The best way to reach staff is through Discord. Open a ticket or tag a moderator if you need help.
           </div>
           <div className="hero-actions" style={{ marginTop: 16 }}>
-            <a className="btn btn-primary" href="https://discord.gg/e4d8YrcSt" target="_blank" rel="noreferrer">
+            <a className="btn btn-primary" href={discordInviteUrl} target="_blank" rel="noreferrer">
               Contact Staff on Discord
             </a>
             <a className="btn btn-ghost" href="/rules">View rules</a>

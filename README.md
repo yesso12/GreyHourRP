@@ -123,13 +123,29 @@ sudo certbot --nginx -d YOUR_DOMAIN_HERE
 - Synthetic monitoring workflow: `.github/workflows/synthetic-monitor.yml`
 - Static deploy script: `scripts/deploy-static.sh`
 - Static rollback script: `scripts/rollback-static.sh`
+- Canary promote script: `scripts/canary-promote.sh`
+- SLO rollback guard script: `scripts/slo-rollback.sh`
+- Policy gate script: `scripts/policy-gate.sh`
+- Drift detection script: `scripts/drift-detect.sh`
+- Provenance script: `scripts/provenance.sh`
+- RUM rollup script: `scripts/rum-rollup.sh`
+- Unified ops board script: `scripts/ops-board-build.sh`
+- Backup verification script: `scripts/backup-verify.sh`
+- Queue worker: `scripts/queue-worker.mjs`
 - Host automation installer: `scripts/systemd/install-host-automation.sh`
   - Installs systemd timers/services for self-heal and health checks.
   - Optional daily backup timer (off by default, enable with `ENABLE_BACKUP_TIMER=true`).
   - Optional weekly restore-drill timer (off by default, enable with `ENABLE_RESTORE_DRILL_TIMER=true`).
   - Optional monthly secrets-rotation timer (off by default, enable with `ENABLE_SECRET_ROTATION_TIMER=true`).
-  - Service-guard timer (on by default, disable with `ENABLE_SERVICE_GUARD_TIMER=false`).
-  - Integrity-check timer (on by default, disable with `ENABLE_INTEGRITY_TIMER=false`).
+- Service-guard timer (on by default, disable with `ENABLE_SERVICE_GUARD_TIMER=false`).
+- Integrity-check timer (on by default, disable with `ENABLE_INTEGRITY_TIMER=false`).
+- SLO guard timer (on by default, disable with `ENABLE_SLO_GUARD_TIMER=false`).
+- Drift detection timer (on by default, disable with `ENABLE_DRIFT_TIMER=false`).
+- RUM rollup timer (on by default, disable with `ENABLE_RUM_TIMER=false`).
+- Ops board timer (on by default, disable with `ENABLE_OPS_BOARD_TIMER=false`).
+- Autoscale policy timer (on by default, disable with `ENABLE_AUTOSCALE_TIMER=false`).
+- Queue worker service (on by default, disable with `ENABLE_QUEUE_WORKER_SERVICE=false`).
+- Backup verification timer (off by default, enable with `ENABLE_BACKUP_VERIFY_TIMER=true`).
 
 Install timers on host:
 ```bash
@@ -194,6 +210,9 @@ Synthetic monitor secrets (GitHub Actions):
 - `ADMIN_BASIC_AUTH_HEADER` or `ADMIN_BASIC_AUTH_USER` + `ADMIN_BASIC_AUTH_PASS` (optional admin checks)
 - `BOT_METRICS_URL` (optional bot metrics endpoint check)
 - `SYNTHETIC_ALERT_WEBHOOK_URL` (optional failure alert destination)
+
+Advanced automation map (items 1-15):
+- `docs/ops/advanced-automation.md`
 
 ## Game Ops
 - Host operations guide: `docs/ops/host-ops.md`

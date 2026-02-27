@@ -14,6 +14,8 @@ fi
 
 AUTOMATION_ALERTS_ENABLED="${AUTOMATION_ALERTS_ENABLED:-true}"
 AUTOMATION_ALERT_WEBHOOK_URL="${AUTOMATION_ALERT_WEBHOOK_URL:-}"
+AUTOMATION_ALERT_WEBHOOK_URL_P1="${AUTOMATION_ALERT_WEBHOOK_URL_P1:-}"
+AUTOMATION_ALERT_WEBHOOK_URL_P2="${AUTOMATION_ALERT_WEBHOOK_URL_P2:-}"
 AUTOMATION_ALERT_MAX_LINES="${AUTOMATION_ALERT_MAX_LINES:-25}"
 AUTOMATION_ALERT_MAX_CHARS="${AUTOMATION_ALERT_MAX_CHARS:-3500}"
 AUTOMATION_ALERT_STATE_DIR="${AUTOMATION_ALERT_STATE_DIR:-/var/lib/greyhourrp-automation-alerts}"
@@ -59,6 +61,18 @@ if [[ "${EXIT_CODE}" == "0" ]]; then
   STATUS_TEXT="SUCCESS"
 fi
 
+SEVERITY="INFO"
+if [[ "${EXIT_CODE}" != "0" ]]; then
+  case "${JOB_NAME}" in
+    slo-guard|self-heal|health-check|service-guard|integrity-check)
+      SEVERITY="P1"
+      ;;
+    *)
+      SEVERITY="P2"
+      ;;
+  esac
+fi
+
 LOG_TAIL="(no log output)"
 if [[ -n "${LOG_FILE}" && -f "${LOG_FILE}" ]]; then
   LOG_TAIL="$(tail -n "${AUTOMATION_ALERT_MAX_LINES}" "${LOG_FILE}" || true)"
@@ -74,6 +88,7 @@ LOG_TAIL="$(printf '%s' "${LOG_TAIL}" | sed -r 's/\x1B\[[0-9;]*[A-Za-z]//g' | tr
 CONTENT_RAW=$(
   cat <<EOF
 [automation] ${STATUS_TEXT}
+severity=${SEVERITY}
 host=${HOST_NAME}
 job=${JOB_NAME}
 exitCode=${EXIT_CODE}
@@ -95,15 +110,22 @@ PAYLOAD="$(
 )"
 
 send_via_webhook() {
-  if [[ -z "${AUTOMATION_ALERT_WEBHOOK_URL}" ]]; then
+  local webhook_url="${AUTOMATION_ALERT_WEBHOOK_URL}"
+  if [[ "${SEVERITY}" == "P1" && -n "${AUTOMATION_ALERT_WEBHOOK_URL_P1}" ]]; then
+    webhook_url="${AUTOMATION_ALERT_WEBHOOK_URL_P1}"
+  elif [[ "${SEVERITY}" == "P2" && -n "${AUTOMATION_ALERT_WEBHOOK_URL_P2}" ]]; then
+    webhook_url="${AUTOMATION_ALERT_WEBHOOK_URL_P2}"
+  fi
+
+  if [[ -z "${webhook_url}" ]]; then
     return 1
   fi
   mkdir -p "${AUTOMATION_ALERT_STATE_DIR}"
   local webhook_hash="default"
   if command -v sha256sum >/dev/null 2>&1; then
-    webhook_hash="$(printf '%s' "${AUTOMATION_ALERT_WEBHOOK_URL}" | sha256sum | awk '{print $1}')"
+    webhook_hash="$(printf '%s' "${webhook_url}" | sha256sum | awk '{print $1}')"
   else
-    webhook_hash="$(printf '%s' "${AUTOMATION_ALERT_WEBHOOK_URL}" | cksum | awk '{print $1}')"
+    webhook_hash="$(printf '%s' "${webhook_url}" | cksum | awk '{print $1}')"
   fi
   local state_file="${AUTOMATION_ALERT_STATE_DIR}/webhook-${webhook_hash}.state"
   local now_epoch
@@ -131,7 +153,7 @@ send_via_webhook() {
       curl --silent --show-error --location \
         --output /tmp/greyhourrp-automation-alert-webhook-probe.out \
         --write-out "%{http_code}" \
-        "${AUTOMATION_ALERT_WEBHOOK_URL}" || true
+        "${webhook_url}" || true
     )"
     last_probe="${now_epoch}"
     if [[ "${probe_code}" == "200" || "${probe_code}" == "204" ]]; then
@@ -152,7 +174,7 @@ send_via_webhook() {
       --write-out "%{http_code}" \
       --header "Content-Type: application/json" \
       --data "${PAYLOAD}" \
-      "${AUTOMATION_ALERT_WEBHOOK_URL}" || true
+      "${webhook_url}" || true
   )"
   if [[ "${code}" == "200" || "${code}" == "204" ]]; then
     printf 'fail_count=0\ndisabled_until=0\nlast_probe=0\n' > "${state_file}"

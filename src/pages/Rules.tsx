@@ -1,4 +1,6 @@
 import { Section } from '../components/Section'
+import { ConversionStrip } from '../components/ConversionStrip'
+import { useDiscordInvite } from '../hooks/useDiscordInvite'
 
 const rules = [
   {
@@ -29,6 +31,8 @@ const violations = [
 ]
 
 export function Rules() {
+  const discordInviteUrl = useDiscordInvite('rules_primary_cta')
+
   return (
     <div>
       <section className="page-hero">
@@ -40,7 +44,23 @@ export function Rules() {
               Grey Hour RP is built to keep immersion intact and conflict meaningful. These rules exist to protect
               the long-term world, not to restrict creativity.
             </div>
+            <div className="hero-actions" style={{ marginTop: 14 }}>
+              <a className="btn btn-primary" href={discordInviteUrl} target="_blank" rel="noreferrer">Join Discord</a>
+              <a className="btn" href="/how-to-join">Start Here</a>
+            </div>
           </div>
+        </div>
+      </section>
+
+      <section style={{ padding: '8px 0 0' }}>
+        <div className="container">
+          <ConversionStrip
+            eyebrow="Rule-First Entry"
+            title="Know the code, then move fast."
+            body="Players who read the rules first integrate faster, avoid friction, and build better stories from day one."
+            primary={{ label: 'Join Discord & Enter', href: discordInviteUrl, external: true }}
+            secondary={{ label: 'How to Join', href: '/how-to-join' }}
+          />
         </div>
       </section>
 
@@ -91,7 +111,7 @@ export function Rules() {
           </div>
           <div className="hero-actions" style={{ marginTop: 16 }}>
             <a className="btn btn-primary" href="/how-to-join">Start here</a>
-            <a className="btn btn-ghost" href="/discord">Join Discord</a>
+            <a className="btn btn-ghost" href={discordInviteUrl} target="_blank" rel="noreferrer">Open Discord</a>
           </div>
         </div>
       </Section>

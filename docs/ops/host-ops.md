@@ -33,6 +33,19 @@ Files:
 - `scripts/systemd/greyhourrp-service-guard.timer`
 - `scripts/systemd/greyhourrp-integrity-check.service`
 - `scripts/systemd/greyhourrp-integrity-check.timer`
+- `scripts/systemd/greyhourrp-slo-guard.service`
+- `scripts/systemd/greyhourrp-slo-guard.timer`
+- `scripts/systemd/greyhourrp-drift-detect.service`
+- `scripts/systemd/greyhourrp-drift-detect.timer`
+- `scripts/systemd/greyhourrp-rum-rollup.service`
+- `scripts/systemd/greyhourrp-rum-rollup.timer`
+- `scripts/systemd/greyhourrp-ops-board.service`
+- `scripts/systemd/greyhourrp-ops-board.timer`
+- `scripts/systemd/greyhourrp-backup-verify.service`
+- `scripts/systemd/greyhourrp-backup-verify.timer`
+- `scripts/systemd/greyhourrp-autoscale-policy.service`
+- `scripts/systemd/greyhourrp-autoscale-policy.timer`
+- `scripts/systemd/greyhourrp-queue-worker.service`
 - Installer: `scripts/systemd/install-host-automation.sh`
 
 Install:
@@ -63,6 +76,9 @@ Env overrides:
 - Copy `scripts/systemd/greyhourrp-automation.env.example`
 - Host path: `/etc/default/greyhourrp-automation`
 - Set `AUTOMATION_ALERT_WEBHOOK_URL` to enable Discord alerts for timer success/failure.
+- Optional severity routing:
+  - `AUTOMATION_ALERT_WEBHOOK_URL_P1`
+  - `AUTOMATION_ALERT_WEBHOOK_URL_P2`
 - Webhook circuit-breaker controls:
   - `AUTOMATION_ALERT_WEBHOOK_DISABLE_AFTER_FAILS=3`
   - `AUTOMATION_ALERT_WEBHOOK_DISABLE_SECONDS=3600`
@@ -85,6 +101,22 @@ Env overrides:
   - `QUARANTINE_ROOT=/var/backups/greyhourrp/quarantine`
   - `ENABLE_AUTO_RESTORE_ON_CORRUPTION=true`
   - `CONTENT_SCAN_MAXDEPTH=1`
+- SLO guard config:
+  - `SLO_CHECK_COUNT=3`
+  - `SLO_FAIL_THRESHOLD=2`
+  - `SMOKE_BASE_URL=https://greyhourrp.xyz`
+- Drift config:
+  - `DRIFT_BASELINE_FILE=/var/lib/greyhourrp-drift/baseline.sha256`
+- RUM/ops board config:
+  - `RUM_TELEMETRY_LOG=/var/log/greyhourrp-web-telemetry.jsonl`
+  - `RUM_OUTPUT_JSON=/var/www/greyhourrp/content/rum-dashboard.json`
+  - `OPS_BOARD_JSON=/var/www/greyhourrp/content/ops-board.json`
+- Queue worker config:
+  - `AUTOMATION_QUEUE_DIR=/var/lib/greyhourrp-automation-queue`
+  - `AUTOMATION_QUEUE_POLL_MS=3000`
+- Autoscale policy config:
+  - `AUTOSCALE_METRICS_JSON=/var/www/greyhourrp/content/rum-dashboard.json`
+  - `AUTOSCALE_DECISION_OUT=/var/lib/greyhourrp-autoscale/decision.json`
 - If Discord bot automation should be disabled on this host:
   - `SELF_HEAL_DEPLOY_BOT=false`
   - `CHECK_DISCORD_BOT_SERVICE=false`

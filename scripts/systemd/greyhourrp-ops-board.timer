@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GreyHourRP ops board snapshot every 5 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:30
+Persistent=true
+RandomizedDelaySec=30
+Unit=greyhourrp-ops-board.service
+
+[Install]
+WantedBy=timers.target

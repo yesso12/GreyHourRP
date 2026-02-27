@@ -6,8 +6,20 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:release": "npm run build && bash scripts/provenance.sh dist dist/provenance",
     "preview": "vite preview",
-    "health:full": "bash scripts/health-check-all.sh"
+    "smoke": "bash scripts/smoke.sh",
+    "policy:gate": "bash scripts/policy-gate.sh dist",
+    "health:full": "bash scripts/health-check-all.sh",
+    "slo:guard": "bash scripts/slo-rollback.sh /var/www/greyhourrp",
+    "canary:promote": "bash scripts/canary-promote.sh dist /var/www/greyhourrp",
+    "drift:check": "bash scripts/drift-detect.sh check",
+    "drift:baseline": "bash scripts/drift-detect.sh baseline",
+    "rum:rollup": "bash scripts/rum-rollup.sh",
+    "ops:board": "bash scripts/ops-board-build.sh",
+    "backup:verify": "bash scripts/backup-verify.sh",
+    "autoscale:policy": "bash scripts/autoscale-policy.sh",
+    "security:hardening": "bash scripts/security-hardening-check.sh"
   },
   "dependencies": {
     "framer-motion": "^11.0.0",

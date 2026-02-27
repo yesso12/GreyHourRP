@@ -81,6 +81,11 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `DISCORD_CLIENT_ID`
 - `DISCORD_GUILD_ID`
 - `ADMIN_API_BASE`
+- `PTERO_APP_BASE_URL`
+- `PTERO_APP_KEY`
+- `PTERO_SERVER_ID` (optional)
+- `PTERO_SERVER_EXTERNAL_ID` (optional)
+- `PTERO_TIMEOUT_MS` (default 8000)
 - `ANNOUNCE_CHANNEL_ID`
 - `STATUS_CHANNEL_ID`
 - `LOG_CHANNEL_ID`
@@ -95,6 +100,37 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `WELCOME_MESSAGE` (use `{user}` placeholder)
 - `GOODBYE_CHANNEL_ID`
 - `GOODBYE_MESSAGE` (use `{user}` placeholder)
+- `DOSSIER_REVIEW_CHANNEL_ID` (staff review notifications)
+- `DOSSIER_REVIEW_ROLE_ID` (optional role mention for reviews)
+- `ARC_CHANNEL_ID` (arc updates channel)
+- `EVENT_CHANNEL_ID` (event updates channel)
+- `ECONOMY_CHANNEL_ID` (economy updates channel)
+- `DOSSIER_PUBLIC_CHANNEL_ID` (public approved dossier feed)
+- `STAFF_CONTENT_DIGEST_CHANNEL_ID` (staff digest channel)
+- `STAFF_CONTENT_DIGEST_TIME_UTC` (default 17:30)
+- `MENTION_ALLOWED_CHANNEL_IDS` (comma-separated channel IDs allowed to ping roles)
+- `HELPLINE_CONFIG_FILE` (path to scripted help lines JSON)
+- `FACTION_CHANNEL_FILE` (path to faction channel map JSON)
+- `PTERO_CLIENT_BASE_URL` (Client API base URL)
+- `PTERO_CLIENT_KEY` (Client API key)
+- `PTERO_CLIENT_SERVER_ID` (Client API server identifier)
+- `PTERO_WATCH_ENABLED` (default false)
+- `PTERO_WATCH_INTERVAL_MINUTES` (default 5)
+- `PTERO_WATCH_CHANNEL_ID` (defaults to LOG_CHANNEL_ID)
+- `PTERO_WATCH_CPU_ALERT` (default 90)
+- `PTERO_WATCH_MEMORY_ALERT` (default 90)
+- `PTERO_WATCH_DISK_ALERT` (default 90)
+- `PTERO_WATCH_COOLDOWN_MINUTES` (default 30)
+- `PTERO_POWER_CONFIRM_WINDOW_MINUTES` (default 5)
+- `PTERO_CONSOLE_DEFAULT_MINUTES` (default 2)
+- `PTERO_CONSOLE_MAX_MINUTES` (default 5)
+- `PTERO_CONSOLE_FLUSH_MS` (default 2000)
+- `PTERO_CONSOLE_MAX_LINES` (default 80)
+- `PTERO_CONSOLE_COOLDOWN_MINUTES` (default 5)
+- `QUIET_HOURS_ENABLED` (default true)
+- `QUIET_HOURS_START_UTC` (HH:MM)
+- `QUIET_HOURS_END_UTC` (HH:MM)
+- `DISCORD_OPS_REFRESH_MS` (default 60000)
 - `SITE_URL` (defaults to ADMIN_API_BASE)
 - `BOT_ACTIVITY_TEXT`
 - `BOT_DEPLOY_TAG`
@@ -128,6 +164,10 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `AUTO_UPDATES_MINUTES` (default 30)
 - `AUTO_TRANSMISSIONS_MINUTES` (default 30)
 - `AUTO_MODS_MINUTES` (default 60)
+- `AUTO_ARCS_MINUTES` (default 30)
+- `AUTO_EVENTS_MINUTES` (default 30)
+- `AUTO_ECONOMY_MINUTES` (default 60)
+- `AUTO_DOSSIERS_MINUTES` (default 30)
 - `DAILY_REMINDER_TIME` (HH:MM)
 - `DAILY_REMINDER_MESSAGE`
 - `DAILY_REMINDER_CHANNEL_ID`
@@ -205,6 +245,16 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - `/transmissions`
 - `/mods`
 - `/moddiff`
+- `/dossier submit|list`
+- `/arc list`
+- `/event list`
+- `/economy status`
+- `/helpline staff|owner`
+- `/digest content`
+- `/ptero status`
+- `/ptero resources`
+- `/ptero power`
+- `/ptero console`
 - `/rules`
 - `/join`
 - `/announce message|preset note everyone`
@@ -227,4 +277,8 @@ This bot powers advanced Discord automation for Grey Hour RP using the Admin API
 - Keep the API protected behind nginx/basic-auth credentials and strict role mapping.
 - Smoke check validates Admin API auth + service state: `npm run smoke`
 - Policy file is evaluated on every staff command gate (`/backup`, `/audit`, `/incident`, `/ops`, etc.).
+- Pterodactyl power signals require `confirm:true` and may require a second staff confirmation if `ADMIN_REQUIRE_SECOND_CONFIRMATION=true`.
+- `/ptero resources`, `/ptero power`, and `/ptero console` require the Client API env vars (`PTERO_CLIENT_*`).
 - Bot admin API calls include a request correlation header (`X-Request-ID`) for tracing.
+- Helpline scripts can be edited in Admin (`helpline-scripts` content) or via `config/helpline.json` fallback.
+- Faction channel routing uses `config/faction-channels.json` (or `FACTION_CHANNEL_FILE`).

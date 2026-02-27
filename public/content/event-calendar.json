@@ -1,0 +1,27 @@
+{
+  "updatedUtc": "2026-02-05T00:00:00Z",
+  "timezone": "UTC",
+  "notes": [
+    "Events sync with Discord announcements."
+  ],
+  "events": [
+    {
+      "id": "event-river-run",
+      "title": "River Run Convoy",
+      "status": "open",
+      "summary": "Escort a fuel convoy through contested territory.",
+      "location": "West Point",
+      "startUtc": "2026-02-07T01:00:00Z",
+      "endUtc": "2026-02-07T03:00:00Z",
+      "capacity": 16,
+      "waitlistEnabled": true,
+      "factionId": "faction-dusk",
+      "tags": [
+        "convoy",
+        "pvp"
+      ],
+      "host": "Marshal Voss",
+      "link": "https://discord.gg/wCUJckSk3s"
+    }
+  ]
+}

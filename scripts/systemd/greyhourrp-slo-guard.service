@@ -1,0 +1,10 @@
+[Unit]
+Description=GreyHourRP SLO guard with auto-rollback
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/greyhourrp-automation
+WorkingDirectory=/opt/greyhourrp
+ExecStart=/opt/greyhourrp/scripts/systemd/run-with-alert.sh slo-guard /opt/greyhourrp/scripts/slo-rollback.sh /var/www/greyhourrp

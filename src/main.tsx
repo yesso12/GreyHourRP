@@ -1,6 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { App } from './App'
+import { AppErrorBoundary } from './components/AppErrorBoundary'
+import { initObservability } from './observability'
 import './styles/global.css'
 import "./admin/styles/admin.css";
 
@@ -21,8 +23,12 @@ if (!root) {
   throw new Error('Root container missing in index.html')
 }
 
+initObservability()
+
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
-    <App />
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
   </React.StrictMode>
 )

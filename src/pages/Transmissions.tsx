@@ -42,7 +42,7 @@ export function Transmissions() {
   }, [items, category, query])
 
   return (
-    <div>
+    <div className="transmissions-page">
       <section className="page-hero">
         <div className="container">
           <div className="glass">
@@ -85,7 +85,7 @@ export function Transmissions() {
         {filtered.map(t => (
           <div
             key={t.id}
-            className="card"
+            className="card transmission-card"
             style={{
               marginBottom: 16,
               border: t.pinned ? '1px solid rgba(177,15,22,0.55)' : undefined

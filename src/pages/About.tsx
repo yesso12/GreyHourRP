@@ -1,7 +1,11 @@
 import { Section } from '../components/Section'
+import { ConversionStrip } from '../components/ConversionStrip'
 import logo from '../assets/logo.png'
+import { useDiscordInvite } from '../hooks/useDiscordInvite'
 
 export function About() {
+  const discordInviteUrl = useDiscordInvite('about_primary_cta')
+
   return (
     <div>
       <section className="page-hero">
@@ -18,6 +22,10 @@ export function About() {
               People were told to stay inside, to wait for help, to trust that order
               would return by morning. It never did.
             </div>
+            <div className="hero-actions" style={{ marginTop: 14 }}>
+              <a className="btn btn-primary" href={discordInviteUrl} target="_blank" rel="noreferrer">Join Discord</a>
+              <a className="btn" href="/how-to-join">Enter the Server</a>
+            </div>
           </div>
 
           <div className="card" style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -27,6 +35,18 @@ export function About() {
               <div className="small">The moment the world balanced between what it was and what it would become.</div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section style={{ padding: '8px 0 0' }}>
+        <div className="container">
+          <ConversionStrip
+            eyebrow="Your Chapter"
+            title="The world is written by who shows up."
+            body="If this setting matches your style, move now. Join Discord, pick your first direction, and enter the Grey Hour."
+            primary={{ label: 'Join Discord Now', href: discordInviteUrl, external: true }}
+            secondary={{ label: 'How to Join', href: '/how-to-join' }}
+          />
         </div>
       </section>
 
@@ -107,7 +127,7 @@ export function About() {
             and your character to matter, the Grey Hour is waiting.
           </div>
           <div className="hero-actions" style={{ marginTop: 16 }}>
-            <a className="btn btn-primary" href="/how-to-join">Begin the story</a>
+            <a className="btn btn-primary" href={discordInviteUrl} target="_blank" rel="noreferrer">Join Discord & Start</a>
             <a className="btn btn-ghost" href="/rules">Read the rules</a>
           </div>
         </div>

@@ -1,0 +1,165 @@
+name: Synthetic Monitor
+
+on:
+  schedule:
+    - cron: "*/1 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: synthetic-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        probe: [edge-a, edge-b, edge-c]
+    steps:
+      - name: Run Endpoint Checks
+        id: checks
+        env:
+          PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+          ADMIN_API_BASE: ${{ secrets.ADMIN_API_BASE }}
+          ADMIN_BASIC_AUTH_HEADER: ${{ secrets.ADMIN_BASIC_AUTH_HEADER }}
+          ADMIN_BASIC_AUTH_USER: ${{ secrets.ADMIN_BASIC_AUTH_USER }}
+          ADMIN_BASIC_AUTH_PASS: ${{ secrets.ADMIN_BASIC_AUTH_PASS }}
+          BOT_METRICS_URL: ${{ secrets.BOT_METRICS_URL }}
+        run: |
+          set -euo pipefail
+
+          BASE="${PUBLIC_BASE_URL:-https://greyhourrp.xyz}"
+          ADMIN_BASE="${ADMIN_API_BASE:-$BASE}"
+          REPORT="/tmp/synthetic-report.txt"
+          FAILURES=0
+
+          auth_args=()
+          if [[ -n "${ADMIN_BASIC_AUTH_HEADER:-}" ]]; then
+            auth_args=(--header "Authorization: ${ADMIN_BASIC_AUTH_HEADER}")
+          elif [[ -n "${ADMIN_BASIC_AUTH_USER:-}" && -n "${ADMIN_BASIC_AUTH_PASS:-}" ]]; then
+            auth_args=(--user "${ADMIN_BASIC_AUTH_USER}:${ADMIN_BASIC_AUTH_PASS}")
+          fi
+
+          check_json_field() {
+            local name="$1"
+            local url="$2"
+            local field="$3"
+            local mode="${4:-public}"
+            local status body ok
+            if [[ "${mode}" == "admin" ]]; then
+              status="$(curl --silent --show-error --location --output /tmp/resp.json --write-out "%{http_code}" "${auth_args[@]}" "$url" || true)"
+            else
+              status="$(curl --silent --show-error --location --output /tmp/resp.json --write-out "%{http_code}" "$url" || true)"
+            fi
+            body="$(cat /tmp/resp.json 2>/dev/null || true)"
+            ok="false"
+            if [[ "$status" == "200" ]] && node -e "const fs=require('fs'); try { const x=JSON.parse(fs.readFileSync('/tmp/resp.json','utf8')); const has=(o,p)=>p.split('.').every(k=> (o=o?.[k])!==undefined); process.exit(has(x,'${field}')?0:1);} catch {process.exit(1)}"; then
+              ok="true"
+            fi
+            echo "${name}|${url}|status=${status}|field=${field}|ok=${ok}" >> "$REPORT"
+            if [[ "$ok" != "true" ]]; then
+              FAILURES=$((FAILURES+1))
+            fi
+          }
+
+          check_http_200() {
+            local name="$1"
+            local url="$2"
+            local status
+            status="$(curl --silent --show-error --location --output /tmp/resp.raw --write-out "%{http_code}|time_total=%{time_total}" "$url" || true)"
+            echo "${name}|${url}|status=${status}|ok=$([[ "$status" == 200* ]] && echo true || echo false)" >> "$REPORT"
+            if [[ "$status" != 200* ]]; then
+              FAILURES=$((FAILURES+1))
+            fi
+          }
+
+          check_js_asset_cache() {
+            local html js headers
+            html="$(curl --silent --show-error --location "${BASE}/index.html" || true)"
+            js="$(printf '%s' "$html" | sed -n 's/.*src=\"\\([^\\\"]*index-[^\\\"]*\\.js\\)\".*/\\1/p' | head -n 1)"
+            if [[ -z "$js" ]]; then
+              echo "main-asset|missing|ok=false" >> "$REPORT"
+              FAILURES=$((FAILURES+1))
+              return
+            fi
+            headers="$(curl --silent --show-error --location -I "${BASE}${js}" || true)"
+            if printf '%s' "$headers" | tr -d '\r' | grep -iq '^cache-control: .*immutable'; then
+              echo "main-asset|${BASE}${js}|cache=immutable|ok=true" >> "$REPORT"
+            else
+              echo "main-asset|${BASE}${js}|cache=not-immutable|ok=false" >> "$REPORT"
+              FAILURES=$((FAILURES+1))
+            fi
+          }
+
+          {
+            echo "Synthetic monitor run at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "Probe: ${{ matrix.probe }}"
+            echo "Base URL: ${BASE}"
+            echo
+          } > "$REPORT"
+
+          check_http_200 "public-home" "${BASE}/"
+          check_http_200 "public-about" "${BASE}/about"
+          check_http_200 "public-status" "${BASE}/status"
+          check_http_200 "public-mods" "${BASE}/mods"
+          check_json_field "public-server-status" "${BASE}/content/server-status.json" "status"
+          check_json_field "public-game-telemetry" "${BASE}/api/public/game/telemetry" "server.status"
+          check_json_field "public-discord-status" "${BASE}/api/public/discord/status" "online"
+          check_json_field "public-integration-readiness" "${BASE}/api/public/integration/readiness" "gameServerApiReady"
+          check_json_field "public-live-snapshot" "${BASE}/api/public/live-snapshot" "gameServer.status"
+          check_js_asset_cache
+
+          if [[ ${#auth_args[@]} -gt 0 ]]; then
+            check_json_field "admin-rcon-health" "${ADMIN_BASE}/api/admin/game/control/health" "ok" "admin"
+            check_json_field "admin-content-status" "${ADMIN_BASE}/api/admin/content/server-status" "status" "admin"
+          else
+            echo "admin-checks|skipped|reason=no-admin-auth-configured" >> "$REPORT"
+          fi
+
+          if [[ -n "${BOT_METRICS_URL:-}" ]]; then
+            status="$(curl --silent --show-error --location --output /tmp/metrics.out --write-out "%{http_code}" "${BOT_METRICS_URL}" || true)"
+            if [[ "$status" == "200" ]] && grep -q "gh_bot_uptime_seconds_gauge" /tmp/metrics.out; then
+              echo "bot-metrics|${BOT_METRICS_URL}|status=${status}|ok=true" >> "$REPORT"
+            else
+              echo "bot-metrics|${BOT_METRICS_URL}|status=${status}|ok=false" >> "$REPORT"
+              FAILURES=$((FAILURES+1))
+            fi
+          else
+            echo "bot-metrics|skipped|reason=no-bot-metrics-url" >> "$REPORT"
+          fi
+
+          echo "failures=${FAILURES}" | tee -a "$REPORT"
+          cat "$REPORT"
+
+          cp "$REPORT" synthetic-report.txt
+          if [[ "$FAILURES" -gt 0 ]]; then
+            exit 1
+          fi
+
+      - name: Upload Monitor Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-monitor-report-${{ matrix.probe }}
+          path: synthetic-report.txt
+
+      - name: Alert On Failure
+        if: failure()
+        env:
+          SYNTHETIC_ALERT_WEBHOOK_URL: ${{ secrets.SYNTHETIC_ALERT_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SYNTHETIC_ALERT_WEBHOOK_URL:-}" ]]; then
+            echo "No SYNTHETIC_ALERT_WEBHOOK_URL configured; skipping webhook alert."
+            exit 0
+          fi
+
+          MESSAGE="Synthetic monitor FAILED for ${GITHUB_REPOSITORY}\nRun: ${RUN_URL}\nSee artifact: synthetic-monitor-report"
+          PAYLOAD="$(printf '{"content":"%s"}' "$(printf '%s' "$MESSAGE" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e ':a;N;$!ba;s/\n/\\n/g')")"
+
+          curl --silent --show-error --fail \
+            --header "Content-Type: application/json" \
+            --data "${PAYLOAD}" \
+            "${SYNTHETIC_ALERT_WEBHOOK_URL}"

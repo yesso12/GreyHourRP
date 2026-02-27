@@ -9,6 +9,7 @@ export function AdminServerStatus() {
     status: 'offline',
     message: ''
   })
+  const statusTone = data.status === 'online' ? 'good' : data.status === 'maintenance' ? 'warn' : 'bad'
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -51,6 +52,13 @@ export function AdminServerStatus() {
         <div className="admin-card">Loading status…</div>
       ) : (
         <div className="admin-card">
+          <div className="admin-card-header">
+            <div className="admin-card-title">Current Status</div>
+            <div className={`admin-status ${statusTone}`}>
+              <span className="admin-status-dot" />
+              {data.status}
+            </div>
+          </div>
           <label className="admin-field">
             <span>Status</span>
             <select

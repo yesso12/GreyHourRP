@@ -54,6 +54,14 @@ sudo systemctl enable ${SERVICE_NAME}
 
 sudo bash -lc "cd '$APP_DIR' && ${NPM_BIN} run preflight"
 sudo bash -lc "cd '$APP_DIR' && set -a && source .env && set +a && ${NPM_BIN} run register"
+sudo mkdir -p /var/www/greyhourrp/content
+if [[ -f /opt/greyhourrp/public/content/discord-commands.json ]]; then
+  sudo cp /opt/greyhourrp/public/content/discord-commands.json /var/www/greyhourrp/content/discord-commands.json
+fi
+if [[ -f /opt/greyhourrp/public/content/discord-channel-commands.json ]]; then
+  sudo cp /opt/greyhourrp/public/content/discord-channel-commands.json /var/www/greyhourrp/content/discord-channel-commands.json
+fi
 sudo systemctl restart ${SERVICE_NAME}
+sudo bash -lc "cd '$APP_DIR' && ${NPM_BIN} run smoke"
 
 echo "Deploy complete. Check status with: systemctl status ${SERVICE_NAME}"

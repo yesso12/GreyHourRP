@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GreyHourRP SLO guard every 5 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:45
+Persistent=true
+RandomizedDelaySec=25
+Unit=greyhourrp-slo-guard.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GreyHourRP drift detection every 15 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/15:30
+Persistent=true
+RandomizedDelaySec=30
+Unit=greyhourrp-drift-detect.service
+
+[Install]
+WantedBy=timers.target

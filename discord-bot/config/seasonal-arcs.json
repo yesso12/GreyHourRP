@@ -1,0 +1,28 @@
+{
+  "arcs": [
+    {
+      "id": "arc-scorched-wind",
+      "title": "Scorched Wind",
+      "summary": "A dry front rolls in. Supplies spoil faster and tempers rise. Expect conflict over fuel and water.",
+      "cta": "Post a faction update and mark any critical supply lines."
+    },
+    {
+      "id": "arc-shattered-signal",
+      "title": "Shattered Signal",
+      "summary": "Radio channels degrade. Only fragments of comms get through. Paranoia grows as intel dries up.",
+      "cta": "Share last‑known intel and set up a relay plan."
+    },
+    {
+      "id": "arc-silent-truce",
+      "title": "Silent Truce",
+      "summary": "Major groups agree to a temporary ceasefire. The calm feels unnatural.",
+      "cta": "Use this window to rebuild or reposition."
+    },
+    {
+      "id": "arc-broken-road",
+      "title": "Broken Road",
+      "summary": "Key routes are compromised by hordes. Travel becomes a coordinated operation.",
+      "cta": "Organize a convoy and share map intel."
+    }
+  ]
+}

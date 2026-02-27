@@ -7,6 +7,27 @@ function newId() {
   return (crypto as any)?.randomUUID?.() ?? `sh-${Date.now()}`
 }
 
+function normalizeItem(input: Partial<StatusHistoryItem>): StatusHistoryItem {
+  const fallbackDate = new Date().toISOString()
+  const parsed = input.dateUtc ? new Date(input.dateUtc) : null
+  const dateUtc = parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : fallbackDate
+  const status = input.status === 'online' || input.status === 'offline' || input.status === 'maintenance'
+    ? input.status
+    : 'maintenance'
+  return {
+    id: input.id && input.id.trim() ? input.id : newId(),
+    dateUtc,
+    status,
+    message: input.message ?? ''
+  }
+}
+
+function toDateInputValue(dateUtc: string) {
+  const d = new Date(dateUtc)
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 16)
+  return d.toISOString().slice(0, 16)
+}
+
 export function AdminStatusHistory() {
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<StatusHistoryItem[]>([])
@@ -16,7 +37,7 @@ export function AdminStatusHistory() {
 
   useEffect(() => {
     loadStatusHistory()
-      .then(setItems)
+      .then(data => setItems((data ?? []).map(normalizeItem)))
       .finally(() => setLoading(false))
   }, [])
 
@@ -94,8 +115,12 @@ export function AdminStatusHistory() {
                   <input
                     className="admin-input"
                     type="datetime-local"
-                    value={item.dateUtc.slice(0, 16)}
-                    onChange={e => updateItem(item.id, { dateUtc: new Date(e.target.value).toISOString() })}
+                    value={toDateInputValue(item.dateUtc)}
+                    onChange={e => {
+                      const dt = new Date(e.target.value)
+                      if (Number.isNaN(dt.getTime())) return
+                      updateItem(item.id, { dateUtc: dt.toISOString() })
+                    }}
                   />
                 </label>
               </div>

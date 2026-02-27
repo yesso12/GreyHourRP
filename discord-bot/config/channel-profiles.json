@@ -1,0 +1,47 @@
+{
+  "default": {
+    "tone": "neutral",
+    "prefix": "",
+    "suffix": "",
+    "rateLimit": {
+      "windowSeconds": 30,
+      "maxMessages": 8
+    },
+    "templates": {
+      "status-update": "⚡ {content}",
+      "announce.send": "{content}",
+      "announcepreset.send": "{content}",
+      "event.announce": "{content}",
+      "mods.auto": "🧩 {content}"
+    },
+    "denyCommands": [],
+    "allowCommands": []
+  },
+  "channels": {
+    "STATUS_CHANNEL_ID_HERE": {
+      "tone": "formal",
+      "prefix": "Status Update: ",
+      "templates": {
+        "status-update": "{content}"
+      }
+    },
+    "ANNOUNCE_CHANNEL_ID_HERE": {
+      "tone": "formal",
+      "templates": {
+        "announce.send": "{content}",
+        "announcepreset.send": "{content}"
+      }
+    },
+    "MODCALL_CHANNEL_ID_HERE": {
+      "tone": "formal",
+      "rateLimit": {
+        "windowSeconds": 30,
+        "maxMessages": 12
+      },
+      "denyCommands": [
+        "game.*",
+        "admin.*"
+      ]
+    }
+  }
+}

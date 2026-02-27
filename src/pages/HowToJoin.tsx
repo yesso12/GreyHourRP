@@ -1,4 +1,6 @@
 import { Section } from '../components/Section'
+import { ConversionStrip } from '../components/ConversionStrip'
+import { useDiscordInvite } from '../hooks/useDiscordInvite'
 
 const steps = [
   {
@@ -27,6 +29,7 @@ const ready = [
 ]
 
 export function HowToJoin() {
+  const discordInviteUrl = useDiscordInvite('how_to_join_primary_cta')
   return (
     <div>
       <section className="page-hero">
@@ -35,10 +38,25 @@ export function HowToJoin() {
             <div className="badge"><span style={{ color: 'var(--accent2)' }}>Access Protocol</span></div>
             <h1 className="hero-title">How to enter the Grey Hour.</h1>
             <div className="p" style={{ maxWidth: 820 }}>
-              There are no applications here — just expectations. If you’re ready to roleplay with consequence,
-              you’re ready to join.
+              No long whitelist forms. If you can roleplay with consequence, follow this flow and be in tonight.
+            </div>
+            <div className="hero-actions" style={{ marginTop: 16 }}>
+              <a className="btn btn-primary" href={discordInviteUrl} target="_blank" rel="noreferrer">Join Discord Now</a>
+              <a className="btn" href="/status">Check If Server Is Live</a>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section style={{ padding: '8px 0 0' }}>
+        <div className="container">
+          <ConversionStrip
+            eyebrow="Entry Window"
+            title="Ready players can be in-world fast."
+            body="Use the steps below, keep your concept grounded, and start with momentum on your first night."
+            primary={{ label: 'Open Discord', href: discordInviteUrl, external: true }}
+            secondary={{ label: 'Review Rules', href: '/rules' }}
+          />
         </div>
       </section>
 
@@ -51,7 +69,7 @@ export function HowToJoin() {
               <div className="p" style={{ marginTop: 8 }}>{step.d}</div>
               <div style={{ marginTop: 12 }}>
                 {index === 0 && (
-                  <a className="btn btn-primary" href="https://discord.gg/e4d8YrcSt" target="_blank" rel="noreferrer">
+                  <a className="btn btn-primary" href={discordInviteUrl} target="_blank" rel="noreferrer">
                     Join Discord
                   </a>
                 )}
@@ -82,8 +100,8 @@ export function HowToJoin() {
             become important. The Grey Hour favors patience.
           </div>
           <div className="hero-actions" style={{ marginTop: 16 }}>
-            <a className="btn btn-primary" href="/transmissions">Read transmissions</a>
-            <a className="btn btn-ghost" href="/updates">View updates</a>
+            <a className="btn btn-primary" href={discordInviteUrl} target="_blank" rel="noreferrer">Join Discord & Introduce Yourself</a>
+            <a className="btn btn-ghost" href="/transmissions">Read transmissions</a>
           </div>
         </div>
       </Section>

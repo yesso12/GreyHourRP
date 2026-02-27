@@ -71,7 +71,7 @@ export function AdminBackups() {
       {loading ? (
         <div className="admin-card">Loading backups…</div>
       ) : items.length === 0 ? (
-        <div className="admin-card">No backups available for this content yet.</div>
+        <div className="admin-card admin-empty">No backups available for this content yet.</div>
       ) : (
         <div className="admin-list" style={{ marginTop: 16 }}>
           {items.map(item => (

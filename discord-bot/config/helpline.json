@@ -1,0 +1,65 @@
+{
+  "staff": {
+    "ticket": [
+      "Thanks for opening a ticket. We’re on it and will follow up soon.",
+      "To help us resolve this fast, share any details you can (time, place, who).",
+      "Please stay in this channel while we review."
+    ],
+    "triage": [
+      "Thanks for reaching out. We’re going to take a look and make sure you’re safe.",
+      "Please summarize what happened and who was involved.",
+      "If you have screenshots or clips, drop them here so we can review."
+    ],
+    "conflict": [
+      "I hear you. We’re reviewing the situation and will follow up shortly.",
+      "Please avoid retaliation while we investigate. We’ll handle it.",
+      "If you have evidence or context, post it here so we can act quickly."
+    ],
+    "bug": [
+      "Thanks for the report. Can you share steps to reproduce the issue?",
+      "If possible, include your location, time, and any screenshots.",
+      "We’ll log this and update you once it’s reviewed."
+    ],
+    "appeal": [
+      "We can review an appeal. Please share the situation and any evidence.",
+      "We’ll provide a decision after staff review. Thanks for your patience."
+    ],
+    "harassment": [
+      "We take harassment seriously. Please share what happened and when.",
+      "If you feel unsafe, let us know immediately so we can prioritize.",
+      "Evidence (screenshots/links) helps us act quickly."
+    ],
+    "cheating": [
+      "Thanks for reporting. Please provide details, timestamps, and any evidence.",
+      "We’ll investigate quietly and take action if confirmed."
+    ],
+    "outage": [
+      "We’re aware of service issues and are investigating.",
+      "We’ll post an update once we have confirmed details."
+    ]
+  },
+  "owner": {
+    "announcement": [
+      "Official notice: we’re aware of the issue and investigating.",
+      "We’ll share updates here as soon as we have confirmed details.",
+      "Thank you for your patience while staff resolves this."
+    ],
+    "escalation": [
+      "Escalated to ownership for review. We’ll respond after investigation.",
+      "We’re prioritizing safety and clarity. Please avoid speculation."
+    ],
+    "policy": [
+      "Policy note: staff will enforce the rules consistently and fairly.",
+      "If you have concerns, open a ticket so we can review the details."
+    ],
+    "appreciation": [
+      "Thanks for keeping the story strong and the community respectful.",
+      "Your patience helps us keep Grey Hour immersive and safe."
+    ],
+    "outage": [
+      "We’re tracking this issue and coordinating fixes now.",
+      "Next update will be posted once stability is confirmed."
+    ]
+  },
+  "roleOverrides": {}
+}

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "shop-demo",
+    "name": "Demon's Autoshop",
+    "category": "mechanic",
+    "description": "Vehicle repair, towing, and custom tune-ups.",
+    "owner": "Demons",
+    "location": "Raven Creek",
+    "contact": "Ask in #demons-autoshop",
+    "status": "approved",
+    "featured": true,
+    "tags": ["repairs", "towing", "mechanic"],
+    "createdUtc": "2026-02-05T00:00:00Z",
+    "source": "manual"
+  }
+]

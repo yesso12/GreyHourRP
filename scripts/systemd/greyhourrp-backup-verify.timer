@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GreyHourRP backup verify weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:45:00
+Persistent=true
+RandomizedDelaySec=180
+Unit=greyhourrp-backup-verify.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,51 @@
+{
+  "updatedUtc": "2026-02-05T00:00:00Z",
+  "notes": [
+    "Phases update as major events resolve."
+  ],
+  "arcs": [
+    {
+      "id": "arc-winterline",
+      "title": "Winterline Protocol",
+      "status": "live",
+      "summary": "Fuel reserves are collapsing. Control of the river crossings becomes survival.",
+      "season": "Season 1",
+      "startUtc": "2026-01-12T00:00:00Z",
+      "featured": true,
+      "phases": [
+        {
+          "id": "phase-signal",
+          "name": "Signal in the Static",
+          "summary": "Intercept the emergency relay and secure the tower.",
+          "status": "complete",
+          "objectives": [
+            "Repair the relay station",
+            "Escort supply convoy"
+          ],
+          "outcomes": [
+            "Broadcast restored",
+            "Fuel rationing begins"
+          ]
+        },
+        {
+          "id": "phase-crossing",
+          "name": "River Crossing",
+          "summary": "Secure crossings before the dead freeze them shut.",
+          "status": "active",
+          "objectives": [
+            "Hold West Point bridge",
+            "Negotiate neutral trade routes"
+          ]
+        }
+      ],
+      "factionsInvolved": [
+        "Dusk Collective",
+        "Ash Line"
+      ],
+      "rewards": [
+        "Faction supply cache",
+        "Territory control bonus"
+      ]
+    }
+  ]
+}

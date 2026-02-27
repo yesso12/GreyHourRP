@@ -1,13 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import {
-  clearAdminToken,
-  getAdminToken,
-  loginWithPassword,
-  logoutRequest,
+  clearAdminSession,
+  getAdminBasic,
+  getAdminOidcToken,
   me,
   ping,
-  session,
-  setAdminToken
+  setAdminBasic
 } from '../api/client'
 
 export type AdminIdentity = {
@@ -20,7 +18,8 @@ type AuthState = {
   loggedIn: boolean
   identity: AdminIdentity
   login: (username: string, password: string) => Promise<boolean>
-  logout: () => void | Promise<void>
+  loginWithOidcToken: (token: string) => Promise<boolean>
+  logout: () => void
   canAccess: (section: string) => boolean
 }
 
@@ -39,54 +38,64 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     setIdentity({ user: info.user ?? null, role: info.role ?? null })
   }
 
-  async function validate(token: string) {
+  async function validateCurrentSession() {
     try {
-      setAdminToken(token)
-      await session()
       await ping()
       await refreshIdentity()
       return true
     } catch {
-      clearAdminToken()
+      return false
+    }
+  }
+
+  async function validate(username: string, password: string) {
+    try {
+      setAdminBasic(username, password)
+      return await validateCurrentSession()
+    } catch {
+      clearAdminSession()
       return false
     }
   }
 
   async function login(username: string, password: string) {
-    try {
-      const auth = await loginWithPassword(username, password)
-      if (!auth?.token) {
-        setLoggedIn(false)
-        return false
-      }
-      const ok = await validate(auth.token)
-      setLoggedIn(ok)
-      return ok
-    } catch {
-      setLoggedIn(false)
-      return false
-    }
+    const ok = await validate(username, password)
+    setLoggedIn(ok)
+    return ok
   }
 
-  async function logout() {
-    try {
-      await logoutRequest()
-    } catch {
-      // Best effort; clear local token regardless.
-    }
-    clearAdminToken()
+  async function loginWithOidcToken(_token: string) {
+    const ok = await validateCurrentSession()
+    if (!ok) clearAdminSession()
+    setLoggedIn(ok)
+    return ok
+  }
+
+  function logout() {
+    clearAdminSession()
     setLoggedIn(false)
     setIdentity({ user: null, role: null })
   }
 
   useEffect(() => {
-    const token = getAdminToken()
-    if (!token) {
+    const oidcToken = getAdminOidcToken()
+    if (oidcToken) {
+      validateCurrentSession()
+        .then(ok => {
+          if (!ok) clearAdminSession()
+          setLoggedIn(ok)
+        })
+        .finally(() => setChecking(false))
+      return
+    }
+
+    const creds = getAdminBasic()
+    if (!creds) {
       setChecking(false)
       return
     }
 
-    validate(token)
+    validate(creds.username, creds.password)
       .then(ok => setLoggedIn(ok))
       .finally(() => setChecking(false))
   }, [])
@@ -97,15 +106,15 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
       if (!role) return false
       if (role === 'owner') return true
 
-      if (role === 'editor') return ['transmissions', 'updates', 'dashboard', 'activity', 'discord'].includes(section)
-      if (role === 'ops') return ['server-status', 'status-history', 'mods', 'dashboard', 'activity'].includes(section)
+      if (role === 'editor') return ['dashboard', 'updates', 'activity', 'server-control', 'loadouts', 'governance', 'item-codes', 'discord', 'discord-routing', 'ops'].includes(section)
+      if (role === 'ops') return ['dashboard', 'activity', 'server-control', 'loadouts', 'governance', 'item-codes', 'ops', 'discord', 'discord-routing'].includes(section)
       return false
     }
   }, [identity.role])
 
   return (
     <AdminAuthContext.Provider
-      value={{ checking, loggedIn, identity, login, logout, canAccess }}
+      value={{ checking, loggedIn, identity, login, loginWithOidcToken, logout, canAccess }}
     >
       {children}
     </AdminAuthContext.Provider>

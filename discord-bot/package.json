@@ -7,17 +7,24 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "register": "node register-commands.js --scope=guild",
-    "register:guild": "node register-commands.js --scope=guild",
-    "register:global": "node register-commands.js --scope=global",
-    "register:both": "node register-commands.js --scope=both",
+    "commands:export": "node scripts/export-commands.js && node scripts/export-channel-commands.js",
+    "commands:export:base": "node scripts/export-commands.js",
+    "register": "node register-commands.js --scope=guild && npm run commands:export",
+    "register:guild": "node register-commands.js --scope=guild && npm run commands:export",
+    "register:global": "node register-commands.js --scope=global && npm run commands:export:base",
+    "register:both": "node register-commands.js --scope=both && npm run commands:export",
     "preflight": "node scripts/preflight.js",
     "test": "node --test tests/*.test.js",
-    "smoke": "bash scripts/smoke-check.sh",
+    "smoke": "bash scripts/smoke-check.sh && node scripts/smoke-slash-commands.js",
     "bootstrap:prod": "bash scripts/production-bootstrap.sh"
   },
   "dependencies": {
+    "@discordjs/opus": "^0.10.0",
+    "@discordjs/voice": "^0.18.0",
     "discord.js": "^14.17.3",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "libsodium-wrappers": "^0.8.2",
+    "opusscript": "^0.0.8",
+    "tweetnacl": "^1.0.3"
   }
 }

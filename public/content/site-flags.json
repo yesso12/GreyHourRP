@@ -1,0 +1,14 @@
+{
+  "showMods": true,
+  "showUpdates": true,
+  "showEvents": true,
+  "showFactions": true,
+  "showDirectory": true,
+  "showDossiers": false,
+  "showEconomy": false,
+  "showLevels": true,
+  "showTransmissions": true,
+  "showDiscordPage": true,
+  "showHowToJoin": true,
+  "showStaff": true
+}

@@ -14,6 +14,7 @@ fi
 : "${ADMIN_API_BASE:?ADMIN_API_BASE is required in .env}"
 
 API_URL="${ADMIN_API_BASE%/}/api/admin/content/server-status"
+RCON_HEALTH_URL="${ADMIN_API_BASE%/}/api/admin/game/control/health"
 
 CURL_ARGS=(
   --silent
@@ -43,6 +44,19 @@ fi
 
 echo "[smoke] PASS: admin API returned 200"
 echo "[smoke] body: ${body}"
+
+echo "[smoke] checking ${RCON_HEALTH_URL}"
+rcon_status_code="$(curl "${CURL_ARGS[@]}" "${RCON_HEALTH_URL}")"
+rcon_body="$(cat /tmp/greyhourrp-smoke-body.json)"
+if [[ "${rcon_status_code}" != "200" ]]; then
+  mkdir -p "$(dirname "${SMOKE_STATUS_FILE}")"
+  printf '{"ok":false,"checkedAt":"%s","statusCode":"%s","apiUrl":"%s","rconStatusCode":"%s"}\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "${status_code}" "${API_URL}" "${rcon_status_code}" > "${SMOKE_STATUS_FILE}"
+  echo "[smoke] FAIL: expected RCON health HTTP 200, got ${rcon_status_code}"
+  echo "[smoke] body: ${rcon_body}"
+  exit 1
+fi
+echo "[smoke] PASS: RCON health returned 200"
+echo "[smoke] body: ${rcon_body}"
 
 if command -v systemctl >/dev/null 2>&1; then
   if systemctl list-unit-files | grep -q '^greyhourrp-admin-api\.service'; then

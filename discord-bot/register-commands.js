@@ -1,29 +1,305 @@
 import "dotenv/config";
-import { PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
+import { ChannelType, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.DISCORD_CLIENT_ID;
 const guildId = process.env.DISCORD_GUILD_ID;
 const scopeArg = process.argv.find((x) => x.startsWith("--scope="));
 const registerScope = (scopeArg ? scopeArg.split("=")[1] : process.env.REGISTER_SCOPE || "guild").toLowerCase();
+const exportOnly = process.argv.includes("--export") || process.env.GH_EXPORT_ONLY === "1";
 
-if (!["guild", "global", "both"].includes(registerScope)) {
+if (!exportOnly && !["guild", "global", "both"].includes(registerScope)) {
   console.error(`Invalid --scope value: ${registerScope}. Use guild, global, or both.`);
   process.exit(1);
 }
 
-if (!token || !clientId) {
+if (!exportOnly && (!token || !clientId)) {
   console.error("Missing DISCORD_TOKEN or DISCORD_CLIENT_ID");
   process.exit(1);
 }
-if ((registerScope === "guild" || registerScope === "both") && !guildId) {
+if (!exportOnly && (registerScope === "guild" || registerScope === "both") && !guildId) {
   console.error("DISCORD_GUILD_ID is required for guild or both scope registration.");
   process.exit(1);
 }
 
-const commands = [
+export const commands = [
   new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
   new SlashCommandBuilder().setName("help").setDescription("Show bot commands"),
+  new SlashCommandBuilder()
+    .setName("start")
+    .setDescription("Quick start guide with buttons")
+    .addBooleanOption((opt) =>
+      opt.setName("post").setDescription("Post a start panel in this channel (staff only)")
+    ),
+  new SlashCommandBuilder()
+    .setName("roleselect")
+    .setDescription("Pick alert roles with buttons")
+    .addBooleanOption((opt) =>
+      opt.setName("post").setDescription("Post the role selector panel (staff only)")
+    ),
+  new SlashCommandBuilder()
+    .setName("helpwizard")
+    .setDescription("Guided help topics and quick tips")
+    .addStringOption((opt) =>
+      opt.setName("topic")
+        .setDescription("Help topic")
+        .setRequired(false)
+        .addChoices(
+          { name: "connect", value: "connect" },
+          { name: "mods", value: "mods" },
+          { name: "rules", value: "rules" },
+          { name: "support", value: "support" },
+          { name: "lore", value: "lore" },
+          { name: "events", value: "events" }
+        )
+    )
+    .addBooleanOption((opt) =>
+      opt.setName("post").setDescription("Post help wizard buttons (staff only)")
+    ),
+  new SlashCommandBuilder()
+    .setName("faq")
+    .setDescription("Common answers for new survivors")
+    .addStringOption((opt) =>
+      opt.setName("topic")
+        .setDescription("FAQ topic")
+        .setRequired(false)
+        .addChoices(
+          { name: "mods", value: "mods" },
+          { name: "connect", value: "connect" },
+          { name: "whitelist", value: "whitelist" },
+          { name: "lag", value: "lag" }
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("bugreport")
+    .setDescription("Report a bug or issue to staff"),
+  new SlashCommandBuilder().setName("directory").setDescription("Website and server directory links"),
+  new SlashCommandBuilder().setName("prompt").setDescription("Get a roleplay prompt"),
+  new SlashCommandBuilder()
+    .setName("ask")
+    .setDescription("Ask GreyHour Assistant a question")
+    .addStringOption((opt) =>
+      opt.setName("question").setDescription("Your question").setRequired(true)
+    ),
+  new SlashCommandBuilder().setName("live").setDescription("Show live server + Discord snapshot"),
+  new SlashCommandBuilder()
+    .setName("suggest")
+    .setDescription("Send a suggestion to staff")
+    .addStringOption((opt) =>
+      opt.setName("topic")
+        .setDescription("Suggestion topic")
+        .setRequired(true)
+        .addChoices(
+          { name: "server", value: "server" },
+          { name: "events", value: "events" },
+          { name: "economy", value: "economy" },
+          { name: "roleplay", value: "roleplay" },
+          { name: "rules", value: "rules" },
+          { name: "mods", value: "mods" },
+          { name: "other", value: "other" }
+        )
+    )
+    .addStringOption((opt) => opt.setName("suggestion").setDescription("Your suggestion").setRequired(true))
+    .addStringOption((opt) => opt.setName("details").setDescription("Optional extra details").setRequired(false)),
+  new SlashCommandBuilder()
+    .setName("shop")
+    .setDescription("Shop and service requests")
+    .addSubcommand((sub) =>
+      sub
+        .setName("request")
+        .setDescription("Request a repair shop service")
+        .addStringOption((opt) =>
+          opt.setName("type")
+            .setDescription("Service type")
+            .setRequired(true)
+            .addChoices(
+              { name: "repair", value: "repair" },
+              { name: "parts", value: "parts" },
+              { name: "tow", value: "tow" },
+              { name: "tune", value: "tune" },
+              { name: "inspection", value: "inspection" },
+              { name: "other", value: "other" }
+            )
+        )
+        .addStringOption((opt) => opt.setName("details").setDescription("What do you need?").setRequired(true))
+        .addStringOption((opt) => opt.setName("vehicle").setDescription("Vehicle or plate").setRequired(false))
+        .addStringOption((opt) => opt.setName("location").setDescription("Pickup/location").setRequired(false))
+        .addStringOption((opt) => opt.setName("contact").setDescription("Best contact info").setRequired(false))
+        .addStringOption((opt) =>
+          opt.setName("urgency")
+            .setDescription("Urgency")
+            .setRequired(false)
+            .addChoices(
+              { name: "low", value: "low" },
+              { name: "normal", value: "normal" },
+              { name: "high", value: "high" }
+            )
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("store")
+        .setDescription("Request a new in-game store/shop listing")
+        .addStringOption((opt) => opt.setName("name").setDescription("Store name").setRequired(true))
+        .addStringOption((opt) =>
+          opt.setName("category")
+            .setDescription("Store category")
+            .setRequired(true)
+            .addChoices(
+              { name: "mechanic", value: "mechanic" },
+              { name: "medical", value: "medical" },
+              { name: "weapons", value: "weapons" },
+              { name: "food", value: "food" },
+              { name: "clothing", value: "clothing" },
+              { name: "entertainment", value: "entertainment" },
+              { name: "other", value: "other" }
+            )
+        )
+        .addStringOption((opt) => opt.setName("description").setDescription("What does the shop offer?").setRequired(true))
+        .addStringOption((opt) => opt.setName("owner").setDescription("Owner/operator name").setRequired(false))
+        .addStringOption((opt) => opt.setName("location").setDescription("Location").setRequired(false))
+        .addStringOption((opt) => opt.setName("contact").setDescription("Best contact info").setRequired(false))
+    ),
+  new SlashCommandBuilder()
+    .setName("dossier")
+    .setDescription("Character dossier submissions")
+    .addSubcommand((sub) =>
+      sub
+        .setName("submit")
+        .setDescription("Submit a character dossier for review")
+        .addStringOption((opt) => opt.setName("name").setDescription("Character name").setRequired(true))
+        .addStringOption((opt) => opt.setName("handle").setDescription("Handle or nickname").setRequired(false))
+        .addStringOption((opt) => opt.setName("faction").setDescription("Faction ID (optional)").setRequired(false))
+        .addStringOption((opt) => opt.setName("backstory").setDescription("Short backstory").setRequired(false))
+        .addStringOption((opt) => opt.setName("goals").setDescription("Goals (comma-separated)").setRequired(false))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("list")
+        .setDescription("List approved dossiers")
+    ),
+  new SlashCommandBuilder()
+    .setName("arc")
+    .setDescription("Seasonal story arcs")
+    .addSubcommand((sub) =>
+      sub
+        .setName("list")
+        .setDescription("Show current arcs")
+    ),
+  new SlashCommandBuilder()
+    .setName("events")
+    .setDescription("Event calendar")
+    .addSubcommand((sub) =>
+      sub
+        .setName("list")
+        .setDescription("List upcoming events")
+    ),
+  new SlashCommandBuilder()
+    .setName("economy")
+    .setDescription("Economy snapshot")
+    .addSubcommand((sub) =>
+      sub
+        .setName("status")
+        .setDescription("Show the latest economy snapshot")
+    ),
+  new SlashCommandBuilder()
+    .setName("digest")
+    .setDescription("Post staff digests")
+    .addSubcommand((sub) =>
+      sub
+        .setName("content")
+        .setDescription("Post the staff content digest now")
+    ),
+  new SlashCommandBuilder()
+    .setName("ptero")
+    .setDescription("Pterodactyl control")
+    .addSubcommand((sub) =>
+      sub
+        .setName("status")
+        .setDescription("Show server status from Pterodactyl Application API")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("resources")
+        .setDescription("Show live resource usage from Pterodactyl Client API")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("power")
+        .setDescription("Send a power signal via Pterodactyl Client API")
+        .addStringOption((opt) =>
+          opt
+            .setName("signal")
+            .setDescription("Power action")
+            .setRequired(true)
+            .addChoices(
+              { name: "start", value: "start" },
+              { name: "stop", value: "stop" },
+              { name: "restart", value: "restart" },
+              { name: "kill", value: "kill" }
+            )
+        )
+        .addBooleanOption((opt) =>
+          opt
+            .setName("confirm")
+            .setDescription("Confirm this power action")
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("console")
+        .setDescription("Stream live console output (read-only)")
+        .addIntegerOption((opt) =>
+          opt
+            .setName("minutes")
+            .setDescription("Stream duration in minutes (default 2)")
+        )
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Optional destination channel")
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("helpline")
+    .setDescription("Scripted help lines for staff and owners")
+    .addSubcommand((sub) =>
+      sub
+        .setName("staff")
+        .setDescription("Staff ticket response scripts")
+        .addStringOption((opt) =>
+          opt.setName("topic")
+            .setDescription("Choose a script")
+            .setRequired(true)
+            .addChoices(
+              { name: "ticket", value: "ticket" },
+              { name: "triage", value: "triage" },
+              { name: "conflict", value: "conflict" },
+              { name: "bug", value: "bug" },
+              { name: "appeal", value: "appeal" },
+              { name: "harassment", value: "harassment" },
+              { name: "cheating", value: "cheating" },
+              { name: "outage", value: "outage" }
+            )
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("owner")
+        .setDescription("Owner announcement scripts")
+        .addStringOption((opt) =>
+          opt.setName("topic")
+            .setDescription("Choose a script")
+            .setRequired(true)
+            .addChoices(
+              { name: "announcement", value: "announcement" },
+              { name: "escalation", value: "escalation" },
+              { name: "policy", value: "policy" },
+              { name: "appreciation", value: "appreciation" },
+              { name: "outage", value: "outage" }
+            )
+        )
+    ),
   new SlashCommandBuilder()
     .setName("oncall")
     .setDescription("On-call rota management")
@@ -162,6 +438,35 @@ const commands = [
       opt.setName("details").setDescription("Include extended diagnostics").setRequired(false)
     ),
   new SlashCommandBuilder()
+    .setName("game")
+    .setDescription("Game server controls (staff only)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub.setName("status").setDescription("Show live game server status")
+    )
+    .addSubcommand((sub) =>
+      sub.setName("players").setDescription("Show current online player count")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("announce")
+        .setDescription("Broadcast a message to the game server")
+        .addStringOption((opt) => opt.setName("message").setDescription("Message to broadcast").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub.setName("save").setDescription("Force save world state")
+    )
+    .addSubcommand((sub) =>
+      sub.setName("restart").setDescription("Restart the game server")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("command")
+        .setDescription("Run a raw game command")
+        .addStringOption((opt) => opt.setName("command").setDescription("Command without leading slash").setRequired(true))
+        .addStringOption((opt) => opt.setName("args").setDescription("Optional args string").setRequired(false))
+    ),
+  new SlashCommandBuilder()
     .setName("ops")
     .setDescription("Operations controls (staff only)")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
@@ -253,7 +558,7 @@ const commands = [
     .addSubcommand((sub) =>
       sub
         .setName("organize")
-        .setDescription("Clean up and organize channels by category")
+        .setDescription("Beautify channel layout, naming, topics, and archive stale channels")
         .addStringOption((opt) =>
           opt.setName("mode")
             .setDescription("Preview or apply changes")
@@ -267,10 +572,110 @@ const commands = [
           opt.setName("normalize_names").setDescription("Also normalize channel names").setRequired(false)
         )
         .addBooleanOption((opt) =>
+          opt.setName("preserve_existing").setDescription("Keep existing channels untouched; only add missing structure").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("apply_topics").setDescription("Auto-apply topic templates when topic is empty").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("create_indexes").setDescription("Create index/read-first channels for each category").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("create_core").setDescription("Create missing core channels for easy discovery").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
           opt.setName("include_voice").setDescription("Include voice/stage channels").setRequired(false)
         )
         .addIntegerOption((opt) =>
           opt.setName("limit").setDescription("Max channels to reorganize (1-100)").setRequired(false)
+        )
+        .addIntegerOption((opt) =>
+          opt.setName("archive_stale_days").setDescription("Move inactive channels to ARCHIVE after N days (0 disables)").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("welcome")
+        .setDescription("Build/update a polished welcome experience channel")
+        .addStringOption((opt) =>
+          opt.setName("mode")
+            .setDescription("Preview or apply")
+            .setRequired(true)
+            .addChoices(
+              { name: "preview", value: "preview" },
+              { name: "apply", value: "apply" }
+            )
+        )
+        .addChannelOption((opt) =>
+          opt.setName("channel").setDescription("Optional target channel (defaults to welcome channel)").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("overwrite").setDescription("Allow replacing existing bot welcome card if found").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("channelmap")
+        .setDescription("Identify and map all channels by category/type")
+        .addStringOption((opt) =>
+          opt.setName("mode")
+            .setDescription("summary or publish")
+            .setRequired(false)
+            .addChoices(
+              { name: "summary", value: "summary" },
+              { name: "publish", value: "publish" }
+            )
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("include_voice").setDescription("Include voice/stage channels").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("overwrite").setDescription("Allow replacing existing published directory card").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("textauto")
+        .setDescription("Automate all text channels with guides and topic upkeep")
+        .addStringOption((opt) =>
+          opt.setName("mode")
+            .setDescription("Preview or apply")
+            .setRequired(true)
+            .addChoices(
+              { name: "preview", value: "preview" },
+              { name: "apply", value: "apply" }
+            )
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("full_scan").setDescription("Process all text channels now").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("websitesync")
+        .setDescription("Sync rules/status/announcements/directory/story channels from website content")
+        .addStringOption((opt) =>
+          opt.setName("mode")
+            .setDescription("Preview or apply")
+            .setRequired(true)
+            .addChoices(
+              { name: "preview", value: "preview" },
+              { name: "apply", value: "apply" }
+            )
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("digest")
+        .setDescription("Post staff operational digest summary")
+        .addStringOption((opt) =>
+          opt.setName("period")
+            .setDescription("Digest period")
+            .setRequired(false)
+            .addChoices(
+              { name: "daily", value: "daily" },
+              { name: "weekly", value: "weekly" }
+            )
         )
     )
     .addSubcommand((sub) =>
@@ -279,6 +684,27 @@ const commands = [
         .setDescription("Show command analytics and error trends")
         .addIntegerOption((opt) =>
           opt.setName("limit").setDescription("Top commands to show (3-20)").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("channels")
+        .setDescription("Approve or deny pending channel creation requests")
+        .addStringOption((opt) =>
+          opt.setName("action")
+            .setDescription("Action to run")
+            .setRequired(true)
+            .addChoices(
+              { name: "pending", value: "pending" },
+              { name: "approve", value: "approve" },
+              { name: "deny", value: "deny" }
+            )
+        )
+        .addStringOption((opt) =>
+          opt.setName("request_id").setDescription("Pending request id for approve/deny").setRequired(false)
+        )
+        .addChannelOption((opt) =>
+          opt.setName("existing_channel").setDescription("Optional existing channel to bind on approve").setRequired(false)
         )
     )
     .addSubcommand((sub) =>
@@ -298,6 +724,154 @@ const commands = [
               { name: "on", value: "on" },
               { name: "off", value: "off" }
             )
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("botcontrol")
+    .setDescription("Owner/dev controls for bot automation and codex")
+    .addSubcommand((sub) =>
+      sub
+        .setName("toggle")
+        .setDescription("Toggle runtime features without editing config")
+        .addStringOption((opt) =>
+          opt
+            .setName("feature")
+            .setDescription("Feature to toggle")
+            .setRequired(true)
+            .addChoices(
+              { name: "Codex replies", value: "codex" },
+              { name: "GPT autoheal", value: "autoheal" },
+              { name: "Text channel automation", value: "textauto" }
+            )
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName("state")
+            .setDescription("Enable or disable the feature")
+            .setRequired(true)
+            .addChoices(
+              { name: "Enable", value: "on" },
+              { name: "Disable", value: "off" }
+            )
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("run")
+        .setDescription("Run a manual automation job")
+        .addStringOption((opt) =>
+          opt
+            .setName("job")
+            .setDescription("Job to run")
+            .setRequired(true)
+            .addChoices(
+              { name: "Text channel automation", value: "textauto" },
+              { name: "Website channel sync", value: "websync" },
+              { name: "Refresh bot ops hub", value: "nav" }
+            )
+        )
+        .addBooleanOption((opt) => opt.setName("force").setDescription("Force run even if the job is disabled"))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("diag")
+        .setDescription("Show runtime bot control status")
+    ),
+  new SlashCommandBuilder()
+    .setName("assistant")
+    .setDescription("Control GreyHour Assistant per channel")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub
+        .setName("enable")
+        .setDescription("Enable assistant in a channel")
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Channel to enable (defaults to current)")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("disable")
+        .setDescription("Disable assistant in a channel")
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Channel to disable (defaults to current)")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("nomention")
+        .setDescription("Allow assistant without mention in a channel")
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Channel to update (defaults to current)")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("reset")
+        .setDescription("Clear overrides and return to auto behavior")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("status")
+        .setDescription("Show assistant channel settings")
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Channel to check (defaults to current)")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("channelmode")
+    .setDescription("Lock or unlock channels for focused use")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((sub) =>
+      sub
+        .setName("lock")
+        .setDescription("Make a channel read-only for members")
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Channel to lock (defaults to current)")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("unlock")
+        .setDescription("Allow members to chat normally")
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Channel to unlock (defaults to current)")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("status")
+        .setDescription("Show channel lock status")
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Channel to check (defaults to current)")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
         )
     ),
   new SlashCommandBuilder()
@@ -367,7 +941,7 @@ const commands = [
       sub
         .setName("close")
         .setDescription("Close a mod case (staff)")
-        .addStringOption((opt) => opt.setName("id").setDescription("Case id").setRequired(true))
+        .addStringOption((opt) => opt.setName("id").setDescription("Case id (optional when run in case thread)").setRequired(false))
         .addStringOption((opt) => opt.setName("reason").setDescription("Resolution reason").setRequired(false))
     )
     .addSubcommand((sub) =>
@@ -513,20 +1087,6 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption((opt) =>
       opt.setName("text").setDescription("Text to analyze").setRequired(true)
-    ),
-  new SlashCommandBuilder()
-    .setName("lang")
-    .setDescription("Set your language preference")
-    .addStringOption((opt) =>
-      opt.setName("locale")
-        .setDescription("Language locale")
-        .setRequired(true)
-        .addChoices(
-          { name: "English", value: "en" },
-          { name: "Spanish", value: "es" },
-          { name: "Portuguese", value: "pt" },
-          { name: "French", value: "fr" }
-        )
     ),
   new SlashCommandBuilder()
     .setName("voice")
@@ -724,7 +1284,90 @@ const commands = [
       opt.setName("user").setDescription("Target user").setRequired(false)
     ),
   new SlashCommandBuilder().setName("playercount").setDescription("Show live player count"),
-  new SlashCommandBuilder().setName("serverip").setDescription("Show server connection details"),
+  new SlashCommandBuilder()
+    .setName("music")
+    .setDescription("Music playback controls")
+    .addSubcommand((sub) =>
+      sub
+        .setName("play")
+        .setDescription("Play by artist/song text, URL, or auto-playlist")
+        .addStringOption((opt) =>
+          opt.setName("query").setDescription("Song name, artist, URL, or playlist request").setRequired(true)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("autoplaylist").setDescription("Queue an automatic playlist from the query").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub.setName("queue").setDescription("Show current queue")
+    )
+    .addSubcommand((sub) =>
+      sub.setName("skip").setDescription("Skip current track")
+    )
+    .addSubcommand((sub) =>
+      sub.setName("stop").setDescription("Stop playback and clear queue")
+    )
+    .addSubcommand((sub) =>
+      sub.setName("leave").setDescription("Disconnect and clear queue")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("setup")
+        .setDescription("Create and approve music text/voice channels")
+        .addStringOption((opt) =>
+          opt.setName("base_name").setDescription("Base channel name (default music)").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("overwrite").setDescription("Replace managed channel bindings").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("approve")
+        .setDescription("Approve channels or bot user for music policy")
+        .addChannelOption((opt) =>
+          opt
+            .setName("text_channel")
+            .setDescription("Approved music text channel")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
+        .addChannelOption((opt) =>
+          opt
+            .setName("voice_channel")
+            .setDescription("Approved music voice channel")
+            .addChannelTypes(ChannelType.GuildVoice)
+            .setRequired(false)
+        )
+        .addUserOption((opt) =>
+          opt.setName("bot_user").setDescription("Music bot account to enforce").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("revoke")
+        .setDescription("Remove channels or bot user from music policy")
+        .addChannelOption((opt) =>
+          opt
+            .setName("text_channel")
+            .setDescription("Approved music text channel")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
+        .addChannelOption((opt) =>
+          opt
+            .setName("voice_channel")
+            .setDescription("Approved music voice channel")
+            .addChannelTypes(ChannelType.GuildVoice)
+            .setRequired(false)
+        )
+        .addUserOption((opt) =>
+          opt.setName("bot_user").setDescription("Music bot account to remove").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub.setName("list").setDescription("Show current music policy")
+    ),
   new SlashCommandBuilder()
     .setName("staff")
     .setDescription("Show current owners/admins/moderators")
@@ -927,6 +1570,41 @@ const commands = [
         )
     )
     .addSubcommand((sub) =>
+      sub.setName("all")
+        .setDescription("Clear all deletable recent messages from a channel")
+        .addIntegerOption((opt) =>
+          opt.setName("max_messages").setDescription("Safety cap (100-20000, default 5000)").setRequired(false)
+        )
+        .addStringOption((opt) =>
+          opt.setName("reason").setDescription("Reason for clearing").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("dry_run").setDescription("Preview only; do not delete").setRequired(false)
+        )
+        .addChannelOption((opt) =>
+          opt.setName("channel").setDescription("Target channel (defaults to current)").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub.setName("old")
+        .setDescription("Delete old messages (older than 14 days) one-by-one")
+        .addIntegerOption((opt) =>
+          opt.setName("max_messages").setDescription("Max old messages to delete (10-2000, default 250)").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("include_pinned").setDescription("Also delete pinned messages").setRequired(false)
+        )
+        .addStringOption((opt) =>
+          opt.setName("reason").setDescription("Reason for clearing").setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("dry_run").setDescription("Preview only; do not delete").setRequired(false)
+        )
+        .addChannelOption((opt) =>
+          opt.setName("channel").setDescription("Target channel (defaults to current)").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
       sub.setName("nuke")
         .setDescription("Recreate a channel to wipe full history")
         .addStringOption((opt) =>
@@ -971,30 +1649,55 @@ const commands = [
         .addStringOption((opt) => opt.setName("id").setDescription("LFG id").setRequired(true))
     ),
   new SlashCommandBuilder()
-    .setName("faction")
-    .setDescription("Faction and clan tools")
+    .setName("group")
+    .setDescription("Faction and shop group tools")
     .addSubcommand((sub) =>
-      sub.setName("create")
-        .setDescription("Create a faction")
-        .addStringOption((opt) => opt.setName("name").setDescription("Faction name").setRequired(true))
-        .addStringOption((opt) => opt.setName("tag").setDescription("Short faction tag").setRequired(false))
+      sub
+        .setName("request")
+        .setDescription("Request a new faction/shop group (admin approval required)")
+        .addStringOption((opt) =>
+          opt
+            .setName("type")
+            .setDescription("Group type")
+            .setRequired(true)
+            .addChoices(
+              { name: "faction", value: "faction" },
+              { name: "shop", value: "shop" }
+            )
+        )
+        .addStringOption((opt) => opt.setName("name").setDescription("Group name").setRequired(true))
+        .addStringOption((opt) => opt.setName("color").setDescription("Hex color (#9b1c1c)").setRequired(true))
+        .addStringOption((opt) => opt.setName("tagline").setDescription("Short tagline (optional)").setRequired(false))
+        .addStringOption((opt) => opt.setName("details").setDescription("Purpose / story summary").setRequired(false))
     )
     .addSubcommand((sub) =>
-      sub.setName("recruit")
-        .setDescription("Invite a member to your faction")
-        .addStringOption((opt) => opt.setName("faction").setDescription("Faction name").setRequired(true))
-        .addUserOption((opt) => opt.setName("user").setDescription("Member to recruit").setRequired(true))
+      sub
+        .setName("add")
+        .setDescription("Add a member to your group")
+        .addUserOption((opt) => opt.setName("user").setDescription("Member to add").setRequired(true))
     )
     .addSubcommand((sub) =>
-      sub.setName("roster")
-        .setDescription("Show faction roster")
-        .addStringOption((opt) => opt.setName("faction").setDescription("Faction name").setRequired(true))
+      sub
+        .setName("remove")
+        .setDescription("Remove a member from your group")
+        .addUserOption((opt) => opt.setName("user").setDescription("Member to remove").setRequired(true))
     )
     .addSubcommand((sub) =>
-      sub.setName("disband")
-        .setDescription("Disband your faction")
-        .addStringOption((opt) => opt.setName("faction").setDescription("Faction name").setRequired(true))
+      sub
+        .setName("roster")
+        .setDescription("Show your group roster")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("disband")
+        .setDescription("Disband your group (owner or staff)")
     ),
+  new SlashCommandBuilder()
+    .setName("level")
+    .setDescription("Show your level and XP"),
+  new SlashCommandBuilder()
+    .setName("levels")
+    .setDescription("Show the top level leaderboard"),
   new SlashCommandBuilder()
     .setName("trade")
     .setDescription("Loot and trade board")
@@ -1126,9 +1829,6 @@ const commands = [
     .addUserOption((opt) => opt.setName("user").setDescription("Who to commend").setRequired(true))
     .addStringOption((opt) => opt.setName("reason").setDescription("Why").setRequired(false)),
   new SlashCommandBuilder()
-    .setName("leaderboard")
-    .setDescription("Top commended survivors"),
-  new SlashCommandBuilder()
     .setName("squadvc")
     .setDescription("Temporary squad voice channels")
     .addSubcommand((sub) =>
@@ -1152,7 +1852,12 @@ const commands = [
           { name: "restart", value: "restart" },
           { name: "wipe", value: "wipe" },
           { name: "raids", value: "raids" },
-          { name: "trade", value: "trade" }
+          { name: "trade", value: "trade" },
+          { name: "events", value: "events" },
+          { name: "updates", value: "updates" },
+          { name: "story", value: "story" },
+          { name: "mods", value: "mods" },
+          { name: "roleplay", value: "roleplay" }
         )
     ),
   new SlashCommandBuilder()
@@ -1171,11 +1876,6 @@ const commands = [
           { name: "off", value: "off" }
         )
     ),
-  new SlashCommandBuilder()
-    .setName("survivor")
-    .setDescription("Fun survivor interaction tools")
-    .addSubcommand((sub) => sub.setName("tip").setDescription("Get a random survival tip"))
-    .addSubcommand((sub) => sub.setName("challenge").setDescription("Get a random survivor challenge")),
   new SlashCommandBuilder()
     .setName("audit")
     .setDescription("View command audit logs (staff)")
@@ -1303,20 +2003,22 @@ const commands = [
     )
 ].map((cmd) => cmd.toJSON());
 
-const rest = new REST({ version: "10" }).setToken(token);
+if (!exportOnly) {
+  const rest = new REST({ version: "10" }).setToken(token);
 
-try {
-  if (registerScope === "guild" || registerScope === "both") {
-    console.log(`Registering guild slash commands for guild ${guildId}...`);
-    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-    console.log("Guild slash commands registered.");
+  try {
+    if (registerScope === "guild" || registerScope === "both") {
+      console.log(`Registering guild slash commands for guild ${guildId}...`);
+      await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
+      console.log("Guild slash commands registered.");
+    }
+    if (registerScope === "global" || registerScope === "both") {
+      console.log("Registering global slash commands...");
+      await rest.put(Routes.applicationCommands(clientId), { body: commands });
+      console.log("Global slash commands registered.");
+    }
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
   }
-  if (registerScope === "global" || registerScope === "both") {
-    console.log("Registering global slash commands...");
-    await rest.put(Routes.applicationCommands(clientId), { body: commands });
-    console.log("Global slash commands registered.");
-  }
-} catch (err) {
-  console.error(err);
-  process.exit(1);
 }

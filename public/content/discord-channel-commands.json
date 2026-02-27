@@ -1,0 +1,32 @@
+{
+  "generatedUtc": "2026-02-24T22:40:59.401Z",
+  "channels": [
+    {
+      "id": "STATUS_CHANNEL_ID_HERE",
+      "name": "channel-D_HERE",
+      "parentId": null,
+      "parentName": null,
+      "type": null,
+      "allowRules": [],
+      "commands": []
+    },
+    {
+      "id": "ANNOUNCE_CHANNEL_ID_HERE",
+      "name": "channel-D_HERE",
+      "parentId": null,
+      "parentName": null,
+      "type": null,
+      "allowRules": [],
+      "commands": []
+    },
+    {
+      "id": "MODCALL_CHANNEL_ID_HERE",
+      "name": "channel-D_HERE",
+      "parentId": null,
+      "parentName": null,
+      "type": null,
+      "allowRules": [],
+      "commands": []
+    }
+  ]
+}

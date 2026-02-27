@@ -1,0 +1,31 @@
+{
+  "updatedUtc": "2026-02-05T00:00:00Z",
+  "notes": [
+    "Public dossiers show approved entries only."
+  ],
+  "dossiers": [
+    {
+      "id": "dossier-ghost",
+      "characterName": "Morgan \"Ghost\" Lane",
+      "handle": "Ghost",
+      "factionId": "faction-dusk",
+      "backstory": "A former EMT with a history of running supply lines across the river.",
+      "goals": [
+        "Stabilize the Riverside clinics",
+        "Build a neutral trade corridor"
+      ],
+      "status": "approved",
+      "reputation": 68,
+      "commendations": 4,
+      "warnings": 0,
+      "lastSeenUtc": "2026-02-04T21:00:00Z",
+      "tags": [
+        "medic",
+        "logistics"
+      ],
+      "createdUtc": "2026-01-15T18:00:00Z",
+      "approvedUtc": "2026-01-18T20:00:00Z",
+      "notes": "Reliable in high-risk rescues."
+    }
+  ]
+}

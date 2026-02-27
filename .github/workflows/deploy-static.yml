@@ -44,8 +44,10 @@ jobs:
           cache: "npm"
       - name: Install Dependencies
         run: npm ci
-      - name: Build
-        run: npm run build
+      - name: Build Release
+        run: npm run build:release
+      - name: Policy Gate
+        run: npm run policy:gate
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -85,13 +87,16 @@ jobs:
       - name: Activate Release
         id: activate_release
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          CANARY_SMOKE_BASE_URL: ${{ secrets.CANARY_SMOKE_BASE_URL }}
+          SMOKE_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
-            sudo /opt/greyhourrp/scripts/deploy-static.sh /tmp/greyhourrp-dist /var/www/greyhourrp
+            sudo CANARY_SMOKE_BASE_URL="${CANARY_SMOKE_BASE_URL:-}" SMOKE_BASE_URL="${SMOKE_BASE_URL:-https://greyhourrp.xyz}" /opt/greyhourrp/scripts/canary-promote.sh /tmp/greyhourrp-dist /var/www/greyhourrp
 
       - name: Post-Deploy Health Check
         id: post_deploy_health
@@ -104,6 +109,20 @@ jobs:
             set -e
             cd /opt/greyhourrp
             sudo CHECK_DISCORD_BOT_SERVICE=false RUN_BOT_SMOKE_CHECK=false npm run health:full
+
+      - name: SLO Guard Verification
+        id: slo_guard
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/greyhourrp
+            sudo SMOKE_BASE_URL="${PUBLIC_BASE_URL:-https://greyhourrp.xyz}" SLO_CHECK_COUNT=2 SLO_FAIL_THRESHOLD=2 npm run slo:guard
 
       - name: Auto Rollback On Health Failure
         if: failure()

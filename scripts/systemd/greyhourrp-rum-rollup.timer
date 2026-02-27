@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GreyHourRP RUM rollup every 5 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:00
+Persistent=true
+RandomizedDelaySec=30
+Unit=greyhourrp-rum-rollup.service
+
+[Install]
+WantedBy=timers.target

@@ -22,7 +22,10 @@ export function Particles() {
     let w = 0
     let h = 0
     const particles: Particle[] = []
-    const count = 80
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (prefersReduced) return
+    const isMobile = window.innerWidth < 768
+    const count = isMobile ? 24 : 56
 
     const resize = () => {
       w = canvas.clientWidth
@@ -52,7 +55,21 @@ export function Particles() {
     ro.observe(canvas)
 
     let raf = 0
+    let lastTs = 0
+    const frameInterval = 1000 / 30 // cap to ~30fps
     const tick = () => {
+      const now = performance.now()
+      if (lastTs && now - lastTs < frameInterval) {
+        raf = requestAnimationFrame(tick)
+        return
+      }
+      lastTs = now
+
+      if (document.hidden) {
+        raf = requestAnimationFrame(tick)
+        return
+      }
+
       ctx.clearRect(0, 0, w, h)
 
       for (const p of particles) {

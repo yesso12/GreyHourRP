@@ -1,0 +1,82 @@
+name: Security
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Audit Web Dependencies
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+
+      - name: Audit Bot Dependencies
+        run: |
+          cd discord-bot
+          npm ci
+          npm audit --omit=dev --audit-level=high
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["javascript"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+
+  web-policy-and-hardening:
+    runs-on: ubuntu-latest
+    env:
+      SECURITY_CHECK_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Release
+        run: npm run build:release
+
+      - name: Policy Gate
+        run: npm run policy:gate
+
+      - name: Security Header Check (optional base URL)
+        run: |
+          if [[ -z "${SECURITY_CHECK_BASE_URL:-}" ]]; then
+            echo "SECURITY_CHECK_BASE_URL not set; skipping external header checks."
+            exit 0
+          fi
+          npm run security:hardening

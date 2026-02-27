@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GreyHourRP autoscale policy every 10 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/10:20
+Persistent=true
+RandomizedDelaySec=30
+Unit=greyhourrp-autoscale-policy.service
+
+[Install]
+WantedBy=timers.target

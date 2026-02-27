@@ -1,0 +1,10 @@
+[Unit]
+Description=GreyHourRP unified ops board snapshot build
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/greyhourrp-automation
+WorkingDirectory=/opt/greyhourrp
+ExecStart=/opt/greyhourrp/scripts/systemd/run-with-alert.sh ops-board /opt/greyhourrp/scripts/ops-board-build.sh
