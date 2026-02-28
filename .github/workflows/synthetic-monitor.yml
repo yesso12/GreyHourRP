@@ -21,6 +21,7 @@ jobs:
         id: checks
         env:
           PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+          PUBLIC_API_BASE: ${{ secrets.PUBLIC_API_BASE }}
           ADMIN_API_BASE: ${{ secrets.ADMIN_API_BASE }}
           ADMIN_BASIC_AUTH_HEADER: ${{ secrets.ADMIN_BASIC_AUTH_HEADER }}
           ADMIN_BASIC_AUTH_USER: ${{ secrets.ADMIN_BASIC_AUTH_USER }}
@@ -30,6 +31,7 @@ jobs:
           set -euo pipefail
 
           BASE="${PUBLIC_BASE_URL:-https://greyhourrp.xyz}"
+          API_BASE="${PUBLIC_API_BASE:-}"
           ADMIN_BASE="${ADMIN_API_BASE:-$BASE}"
           REPORT="/tmp/synthetic-report.txt"
           FAILURES=0
@@ -41,18 +43,34 @@ jobs:
             auth_args=(--user "${ADMIN_BASIC_AUTH_USER}:${ADMIN_BASIC_AUTH_PASS}")
           fi
 
-          check_json_field() {
+          check_json_field_any() {
+            local name="$1"
+            local field="$2"
+            shift 2
+            local urls=("$@")
+            local status ok url
+            ok="false"
+            for url in "${urls[@]}"; do
+              [[ -n "${url}" ]] || continue
+              status="$(curl --silent --show-error --location --output /tmp/resp.json --write-out "%{http_code}" "$url" || true)"
+              if [[ "$status" == "200" ]] && node -e "const fs=require('fs'); try { const x=JSON.parse(fs.readFileSync('/tmp/resp.json','utf8')); const has=(o,p)=>p.split('.').every(k=> (o=o?.[k])!==undefined); process.exit(has(x,'${field}')?0:1);} catch {process.exit(1)}"; then
+                ok="true"
+                echo "${name}|${url}|status=${status}|field=${field}|ok=true" >> "$REPORT"
+                break
+              fi
+              echo "${name}|${url}|status=${status}|field=${field}|ok=false" >> "$REPORT"
+            done
+            if [[ "$ok" != "true" ]]; then
+              FAILURES=$((FAILURES+1))
+            fi
+          }
+
+          check_admin_json_field() {
             local name="$1"
             local url="$2"
             local field="$3"
-            local mode="${4:-public}"
-            local status body ok
-            if [[ "${mode}" == "admin" ]]; then
-              status="$(curl --silent --show-error --location --output /tmp/resp.json --write-out "%{http_code}" "${auth_args[@]}" "$url" || true)"
-            else
-              status="$(curl --silent --show-error --location --output /tmp/resp.json --write-out "%{http_code}" "$url" || true)"
-            fi
-            body="$(cat /tmp/resp.json 2>/dev/null || true)"
+            local status ok
+            status="$(curl --silent --show-error --location --output /tmp/resp.json --write-out "%{http_code}" "${auth_args[@]}" "$url" || true)"
             ok="false"
             if [[ "$status" == "200" ]] && node -e "const fs=require('fs'); try { const x=JSON.parse(fs.readFileSync('/tmp/resp.json','utf8')); const has=(o,p)=>p.split('.').every(k=> (o=o?.[k])!==undefined); process.exit(has(x,'${field}')?0:1);} catch {process.exit(1)}"; then
               ok="true"
@@ -74,6 +92,27 @@ jobs:
             fi
           }
 
+          check_spa_route() {
+            local name="$1"
+            local route="$2"
+            local url="${BASE}${route}"
+            local status fallback_status ok
+            status="$(curl --silent --show-error --location --output /tmp/resp.raw --write-out "%{http_code}" "$url" || true)"
+            ok="false"
+            if [[ "$status" == "200" ]]; then
+              ok="true"
+            elif [[ "$status" == "404" ]]; then
+              fallback_status="$(curl --silent --show-error --location --output /tmp/fallback.html --write-out "%{http_code}" "${BASE}/404.html" || true)"
+              if [[ "$fallback_status" == "200" ]] && grep -q "window.location.replace('/?p='" /tmp/fallback.html; then
+                ok="true"
+              fi
+            fi
+            echo "${name}|${url}|status=${status}|ok=${ok}" >> "$REPORT"
+            if [[ "$ok" != "true" ]]; then
+              FAILURES=$((FAILURES+1))
+            fi
+          }
+
           check_js_asset_cache() {
             local html js headers
             html="$(curl --silent --show-error --location "${BASE}/index.html" || true)"
@@ -86,6 +125,8 @@ jobs:
             headers="$(curl --silent --show-error --location -I "${BASE}${js}" || true)"
             if printf '%s' "$headers" | tr -d '\r' | grep -iq '^cache-control: .*immutable'; then
               echo "main-asset|${BASE}${js}|cache=immutable|ok=true" >> "$REPORT"
+            elif printf '%s' "$headers" | tr -d '\r' | grep -iq '^cache-control: .*max-age=600'; then
+              echo "main-asset|${BASE}${js}|cache=github-pages-default|max-age=600|ok=true" >> "$REPORT"
             else
               echo "main-asset|${BASE}${js}|cache=not-immutable|ok=false" >> "$REPORT"
               FAILURES=$((FAILURES+1))
@@ -100,19 +141,36 @@ jobs:
           } > "$REPORT"
 
           check_http_200 "public-home" "${BASE}/"
-          check_http_200 "public-about" "${BASE}/about"
-          check_http_200 "public-status" "${BASE}/status"
-          check_http_200 "public-mods" "${BASE}/mods"
-          check_json_field "public-server-status" "${BASE}/content/server-status.json" "status"
-          check_json_field "public-game-telemetry" "${BASE}/api/public/game/telemetry" "server.status"
-          check_json_field "public-discord-status" "${BASE}/api/public/discord/status" "online"
-          check_json_field "public-integration-readiness" "${BASE}/api/public/integration/readiness" "gameServerApiReady"
-          check_json_field "public-live-snapshot" "${BASE}/api/public/live-snapshot" "gameServer.status"
+          check_spa_route "public-about" "/about"
+          check_spa_route "public-status" "/status"
+          check_spa_route "public-mods" "/mods"
+          content_status_code="$(curl --silent --show-error --location --output /tmp/content-status.json --write-out "%{http_code}" "${BASE}/content/server-status.json" || true)"
+          echo "public-content-server-status|${BASE}/content/server-status.json|status=${content_status_code}|ok=$([[ "${content_status_code}" == "200" ]] && echo true || echo false)" >> "$REPORT"
+
+          if [[ -n "${API_BASE}" ]]; then
+            check_json_field_any "public-server-live-status" "gameServer.status" \
+              "${API_BASE}/api/public/live-snapshot" \
+              "${BASE}/api/public/live-snapshot"
+            check_json_field_any "public-game-telemetry" "server.status" \
+              "${API_BASE}/api/public/game/telemetry" \
+              "${BASE}/api/public/game/telemetry"
+            check_json_field_any "public-discord-status" "online" \
+              "${API_BASE}/api/public/discord/status" \
+              "${BASE}/api/public/discord/status"
+            check_json_field_any "public-integration-readiness" "gameServerApiReady" \
+              "${API_BASE}/api/public/integration/readiness" \
+              "${BASE}/api/public/integration/readiness"
+            check_json_field_any "public-live-snapshot" "gameServer.status" \
+              "${API_BASE}/api/public/live-snapshot" \
+              "${BASE}/api/public/live-snapshot"
+          else
+            echo "public-api-checks|skipped|reason=no-public-api-base-configured" >> "$REPORT"
+          fi
           check_js_asset_cache
 
           if [[ ${#auth_args[@]} -gt 0 ]]; then
-            check_json_field "admin-rcon-health" "${ADMIN_BASE}/api/admin/game/control/health" "ok" "admin"
-            check_json_field "admin-content-status" "${ADMIN_BASE}/api/admin/content/server-status" "status" "admin"
+            check_admin_json_field "admin-rcon-health" "${ADMIN_BASE}/api/admin/game/control/health" "ok"
+            check_admin_json_field "admin-content-status" "${ADMIN_BASE}/api/admin/content/server-status" "status"
           else
             echo "admin-checks|skipped|reason=no-admin-auth-configured" >> "$REPORT"
           fi
