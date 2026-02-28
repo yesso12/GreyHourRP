@@ -116,7 +116,7 @@ jobs:
           check_js_asset_cache() {
             local html js headers
             html="$(curl --silent --show-error --location "${BASE}/index.html" || true)"
-            js="$(printf '%s' "$html" | sed -n 's/.*src=\"\\([^\\\"]*index-[^\\\"]*\\.js\\)\".*/\\1/p' | head -n 1)"
+            js="$(printf '%s' "$html" | sed -n 's#.*src=\"\\([^\"]*index-[^\"]*\\.js\\)\".*#\\1#p' | head -n 1)"
             if [[ -z "$js" ]]; then
               echo "main-asset|missing|ok=false" >> "$REPORT"
               FAILURES=$((FAILURES+1))
